@@ -33,36 +33,75 @@ public sealed class ApiFixture : IAsyncLifetime
             await create.ExecuteNonQueryAsync();
         }
 
-        _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        try
         {
-            // Development: Redis va Brevo deu duoc phep roi ve ban cai thay the. O
-            // Production app se dung khoi dong khi thieu chung — dung o day thi moi test
-            // deu do vi mot ly do khong lien quan gi den thu dang test.
-            builder.UseEnvironment("Development");
-            builder.UseSetting("ConnectionStrings:DefaultConnection", ConnectionString);
+            _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            {
+                // Development: Redis va Brevo deu duoc phep roi ve ban cai thay the. O
+                // Production app se dung khoi dong khi thieu chung — dung o day thi moi test
+                // deu do vi mot ly do khong lien quan gi den thu dang test.
+                builder.UseEnvironment("Development");
+                builder.UseSetting("ConnectionStrings:DefaultConnection", ConnectionString);
 
-            // App tu choi khoi dong neu khoa ngan hon 32 byte. Chuoi nay chi ton tai trong
-            // test — no khong ky token nao ra ngoai tien trinh test.
-            builder.UseSetting("Jwt:Key", "aiokin-test-signing-key-32-bytes-minimum!!");
-            builder.UseSetting("Jwt:Issuer", "aiokin-test");
-            builder.UseSetting("Jwt:Audience", "aiokin-test");
-        });
+                // App tu choi khoi dong neu khoa ngan hon 32 byte. Chuoi nay chi ton tai trong
+                // test — no khong ky token nao ra ngoai tien trinh test.
+                builder.UseSetting("Jwt:Key", "aiokin-test-signing-key-32-bytes-minimum!!");
+                builder.UseSetting("Jwt:Issuer", "aiokin-test");
+                builder.UseSetting("Jwt:Audience", "aiokin-test");
+            });
 
-        // Tao client la thu that su khoi dong app, va app chay MigrateAsync + DbSeeder luc
-        // khoi dong. Sau dong nay, schema va du lieu seed da san sang.
-        Client = _factory.CreateClient();
+            // Tao client la thu that su khoi dong app, va app chay MigrateAsync + DbSeeder luc
+            // khoi dong. Sau dong nay, schema va du lieu seed da san sang.
+            Client = _factory.CreateClient();
+        }
+        catch
+        {
+            // xUnit khong goi DisposeAsync neu InitializeAsync nem loi (vi du migration hong
+            // luc app khoi dong) — khong tu don dep o day thi database vua CREATE se mo coi
+            // vinh vien tren instance Postgres dung chung. Dong factory (neu da tao duoc) roi
+            // xoa database truoc khi nem lai loi goc.
+            if (_factory is not null)
+                await _factory.DisposeAsync();
+
+            await DropDatabaseAsync();
+            throw;
+        }
     }
 
     public async Task DisposeAsync()
     {
-        Client?.Dispose();
-        if (_factory is not null)
-            await _factory.DisposeAsync();
+        // Moi buoc boc try/finally rieng: mot buoc nem loi (vi du hosted service loi luc
+        // shutdown) khong duoc lam cac buoc don dep sau — dac biet la DROP DATABASE — bi bo qua.
+        try
+        {
+            Client?.Dispose();
+        }
+        finally
+        {
+            try
+            {
+                if (_factory is not null)
+                    await _factory.DisposeAsync();
+            }
+            finally
+            {
+                try
+                {
+                    // Pool con giu ket noi toi database vua roi thi DROP se bao "database is
+                    // being accessed by other users". Dong pool truoc, va van dung WITH (FORCE)
+                    // cho chac.
+                    NpgsqlConnection.ClearAllPools();
+                }
+                finally
+                {
+                    await DropDatabaseAsync();
+                }
+            }
+        }
+    }
 
-        // Pool con giu ket noi toi database vua roi thi DROP se bao "database is being
-        // accessed by other users". Dong pool truoc, va van dung WITH (FORCE) cho chac.
-        NpgsqlConnection.ClearAllPools();
-
+    private async Task DropDatabaseAsync()
+    {
         await using var admin = new NpgsqlConnection(BuildConnectionString("postgres"));
         await admin.OpenAsync();
         await using var drop = new NpgsqlCommand(

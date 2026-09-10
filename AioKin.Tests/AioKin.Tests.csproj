@@ -12,6 +12,14 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+
+    <!-- AioKin.csproj tu keo Microsoft.EntityFrameworkCore.Relational len 9.0.9 (san giua
+         floor 9.0.1 cua Npgsql.EntityFrameworkCore.PostgreSQL va floor 9.0.9 cua
+         Microsoft.EntityFrameworkCore.Design), nhung floor cua Design khong lan truyen qua
+         ProjectReference. Thieu dong nay, restore cua project test chi thay floor 9.0.1 cua
+         Npgsql va chon no — lech voi ban 9.0.9 da nam san trong AioKin.dll, sinh canh bao
+         MSB3277 luc build. Ghim dung phien ban da duoc AioKin.csproj dung de het canh bao. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.9" />
   </ItemGroup>
 
   <ItemGroup>
