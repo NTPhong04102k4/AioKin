@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+
+# Push moi len cung mot nhanh se huy lan chay truoc: chi ket qua cua commit moi nhat
+# moi co y nghia, va no tra lai runner cho cac PR khac.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    # Cac service that thay vi mock: migration EF va truy van ILike chi lo loi tren
+    # Postgres that, con IRedisService co ba ban cai nen ban chay tren Redis phai duoc
+    # kiem tra chu khong chi ban MemoryCache.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aiokin_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+          cache: true
+          cache-dependency-path: AioKin/AioKin.csproj
+
+      - name: Restore
+        run: dotnet restore AioKin.sln
+
+      - name: Build (Release)
+        run: dotnet build AioKin.sln -c Release --no-restore
+
+      # Chua co project test nao; buoc nay tu bo qua va se chay that khi them vao.
+      - name: Test (Release)
+        run: |
+          if ls **/*Tests*.csproj >/dev/null 2>&1; then
+            dotnet test AioKin.sln -c Release --no-build \
+              --results-directory ./artifacts/test-results \
+              --logger "trx;LogFileName=test-results.trx"
+          else
+            echo "Chua co project test — bo qua."
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.run_id }}
+          path: ./artifacts/test-results/**/*.trx
+          if-no-files-found: ignore
+
+      # Migration chi lo loi khi thuc su chay tren Postgres — vi du bieu thuc cot
+      # GENERATED phai IMMUTABLE, dieu ma build khong the phat hien.
+      - name: Verify EF migrations apply
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ConnectionStrings__DefaultConnection: "Host=localhost;Port=5432;Database=aiokin_ci;Username=postgres;Password=postgres"
+          Redis__ConnectionString: "localhost:6379"
+          Jwt__Key: "ci-only-key-not-a-secret-min-32-bytes-long!!"
+        run: |
+          dotnet tool install --global dotnet-ef --version 9.0.9
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet ef database update --project AioKin/AioKin.csproj --no-build --configuration Release
+
+      - name: Publish smoke
+        run: dotnet publish AioKin/AioKin.csproj -c Release --no-build -o ./artifacts/publish /p:UseAppHost=false

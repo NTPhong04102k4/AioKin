@@ -1,0 +1,40 @@
+{
+  "name": "develop (integration)",
+  "target": "branch",
+  "source_type": "Repository",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/develop"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+
+    {
+      "_comment": "Noi hon main: khong bat buoc co nguoi duyet, de nhanh tich hop khong bi nghen. CI thi van phai xanh.",
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false,
+        "automatic_copilot_code_review_enabled": false,
+        "allowed_merge_methods": ["squash", "rebase", "merge"]
+      }
+    },
+
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [{ "context": "build-test" }]
+      }
+    }
+  ],
+  "bypass_actors": []
+}
