@@ -354,13 +354,53 @@ khong phai gia dinh. Buoc test trong CI tu no-op thanh chay that."
 - Create: `AioKin/Data/Entities/Family/FamilyInvite.cs`
 - Modify: `AioKin/Data/AioKinDbContext.cs`
 - Create: `AioKin/Data/Migrations/*_AddFamily.cs` (generated)
+- Create: `AioKin.Tests/Infrastructure/TestData.cs`
 - Create: `AioKin.Tests/Family/FamilySchemaTests.cs`
 
 **Interfaces:**
 - Consumes: `ApiFixture`, `ApiCollection.Name` from Task 1.
 - Produces: `AioKin.Data.Entities.Family.Family` (`FamilyID`, `FamilyUUID`, `Name`, `OwnerUserID`, `StorageQuotaBytes`, `IsActive`, `CreatedDate`, `Members`), `FamilyMember` (`FamilyMemberID`, `FamilyID`, `UserID`, `MemberRole`, `DisplayName`, `JoinedDate`, `IsActive`, `Family`, `User`), `FamilyInvite` (`FamilyInviteID`, `FamilyID`, `Code`, `CreatedByUserID`, `ExpiresAt`, `MaxUses`, `UsedCount`, `RevokedAt`, `CreatedDate`), enum `FamilyMemberRole { Owner, Adult, Child }`, and `AioKinDbContext.Families`, `.FamilyMembers`, `.FamilyInvites`.
 
-- [ ] **Step 1: Write the failing schema test**
+- [ ] **Step 1: Write the shared test-data helper**
+
+Every test that needs a user needs a *valid* one, and `User` has two `required` members
+(`UserCode`, `Username`), both under unique indexes. Building one inline in each test file
+means three places to get wrong. Create `AioKin.Tests/Infrastructure/TestData.cs`:
+
+```csharp
+using AioKin.Data.Entities.Security;
+
+namespace AioKin.Tests.Infrastructure;
+
+/// <summary>
+/// Du lieu mau cho test. Moi ham deu tra ve doi tuong hop le NGAY khi tao — user thieu
+/// UserCode thi khong compile, con hai user trung UserCode thi hong o rang buoc unique,
+/// va ca hai loi do khong lien quan gi den thu dang duoc kiem tra.
+/// </summary>
+public static class TestData
+{
+    /// <summary>
+    /// Mot khach hang hop le, moi lan goi mot danh tinh khac. Username va UserCode deu
+    /// unique trong database nen ca hai phai ngau nhien.
+    /// </summary>
+    public static User NewUser()
+    {
+        var suffix = Guid.NewGuid().ToString("N");
+
+        return new User
+        {
+            UserCode = $"UC{suffix}"[..20],
+            Username = $"u{suffix}"[..20],
+            PasswordHash = "x"
+        };
+    }
+}
+```
+
+Check `AioKin/Data/Entities/Security/User.cs` before writing this: if `required` members
+exist beyond `UserCode` and `Username`, add them here too. The entity is the authority.
+
+- [ ] **Step 2: Write the failing schema test**
 
 Create `AioKin.Tests/Family/FamilySchemaTests.cs`:
 
@@ -385,7 +425,7 @@ public class FamilySchemaTests
         using var scope = _fixture.CreateScope();
         var db = ApiFixture.Db(scope);
 
-        var user = new User { Username = $"u{Guid.NewGuid():N}", PasswordHash = "x" };
+        var user = TestData.NewUser();
         var family = new Family { Name = "Nha test", OwnerUserID = user.UserID };
         db.Users.Add(user);
         db.Families.Add(family);
@@ -413,7 +453,7 @@ public class FamilySchemaTests
         using var scope = _fixture.CreateScope();
         var db = ApiFixture.Db(scope);
 
-        var owner = new User { Username = $"u{Guid.NewGuid():N}", PasswordHash = "x" };
+        var owner = TestData.NewUser();
         var a = new Family { Name = "Nha A", OwnerUserID = owner.UserID };
         var b = new Family { Name = "Nha B", OwnerUserID = owner.UserID };
         db.Users.Add(owner);
@@ -448,7 +488,7 @@ public class FamilySchemaTests
         using var scope = _fixture.CreateScope();
         var db = ApiFixture.Db(scope);
 
-        var user = new User { Username = $"u{Guid.NewGuid():N}", PasswordHash = "x" };
+        var user = TestData.NewUser();
         var family = new Family { Name = "Nha xoa", OwnerUserID = user.UserID };
         db.Users.Add(user);
         db.Families.Add(family);
@@ -472,7 +512,7 @@ public class FamilySchemaTests
 > `AioKin/Data/Entities/Security/User.cs` and supply exactly those; the two shown here
 > (`Username`, `PasswordHash`) are the expected minimum, but the entity is the authority.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 3: Run the test to verify it fails**
 
 ```bash
 dotnet test AioKin.sln --filter FullyQualifiedName~FamilySchemaTests
@@ -480,7 +520,7 @@ dotnet test AioKin.sln --filter FullyQualifiedName~FamilySchemaTests
 
 Expected: FAIL to compile — `Family`, `FamilyMember`, `FamilyInvite` and the `DbSet`s do not exist.
 
-- [ ] **Step 3: Write the role enum**
+- [ ] **Step 4: Write the role enum**
 
 Create `AioKin/Data/Entities/Family/FamilyMemberRole.cs`:
 
@@ -500,7 +540,7 @@ public enum FamilyMemberRole
 }
 ```
 
-- [ ] **Step 4: Write the `Family` entity**
+- [ ] **Step 5: Write the `Family` entity**
 
 Create `AioKin/Data/Entities/Family/Family.cs`:
 
@@ -533,8 +573,12 @@ public class Family
     public required string Name { get; set; }
 
     /// <summary>
-    /// Chu ho, tro toi <c>users.user_id</c> noi bo. Luon co dung mot dong
-    /// <see cref="FamilyMember"/> voi <see cref="FamilyMemberRole.Owner"/> khop gia tri nay.
+    /// Chu ho hien tai, tro toi <c>users.user_id</c> noi bo.
+    ///
+    /// KHONG phai mot rang buoc duy nhat: mot gia dinh co the co nhieu thanh vien mang vai
+    /// tro <see cref="FamilyMemberRole.Owner"/>. Bat bien that su la "luon con it nhat mot
+    /// thanh vien Owner dang hoat dong", va no duoc giu bang cach DEM so dong Owner chu
+    /// khong bang cach so sanh voi cot nay.
     /// </summary>
     public Guid OwnerUserID { get; set; }
 
@@ -552,7 +596,7 @@ public class Family
 }
 ```
 
-- [ ] **Step 5: Write the `FamilyMember` and `FamilyInvite` entities**
+- [ ] **Step 6: Write the `FamilyMember` and `FamilyInvite` entities**
 
 Create `AioKin/Data/Entities/Family/FamilyMember.cs`:
 
@@ -643,7 +687,7 @@ public class FamilyInvite
 }
 ```
 
-- [ ] **Step 6: Wire the DbContext**
+- [ ] **Step 7: Wire the DbContext**
 
 In `AioKin/Data/AioKinDbContext.cs`, add the using and the `DbSet`s next to the existing ones:
 
@@ -706,15 +750,15 @@ Then add to the end of `OnModelCreating`, after the existing `ScheduleItem` bloc
 
 `MemberRole` is stored as text, not as its integer value: a human reading `family_members` in psql should see `Owner`, not `0`. Reordering the enum later would then be a data problem instead of a silent, invisible one.
 
-- [ ] **Step 7: Generate the migration**
+- [ ] **Step 8: Generate the migration**
 
 ```bash
 dotnet ef migrations add AddFamily --project AioKin/AioKin.csproj --output-dir Data/Migrations
 ```
 
-Open the generated file and confirm it contains `EnsureSchema(name: "family")`, three `CreateTable` calls, and no `AlterColumn`/`DropColumn` against any existing table. If it touches an existing table, stop — something in Step 6 changed a shared configuration, and the Android app depends on those tables.
+Open the generated file and confirm it contains `EnsureSchema(name: "family")`, three `CreateTable` calls, and no `AlterColumn`/`DropColumn` against any existing table. If it touches an existing table, stop — something in Step 7 changed a shared configuration, and the Android app depends on those tables.
 
-- [ ] **Step 8: Run the tests to verify they pass**
+- [ ] **Step 9: Run the tests to verify they pass**
 
 ```bash
 dotnet test AioKin.sln --filter FullyQualifiedName~FamilySchemaTests
@@ -722,7 +766,7 @@ dotnet test AioKin.sln --filter FullyQualifiedName~FamilySchemaTests
 
 Expected: PASS, all three.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add AioKin/Data AioKin.Tests/Family
@@ -1075,7 +1119,7 @@ public class FamilyContextTests
         IServiceScope scope, FamilyMemberRole role)
     {
         var db = ApiFixture.Db(scope);
-        var user = new User { Username = $"u{Guid.NewGuid():N}", PasswordHash = "x" };
+        var user = TestData.NewUser();
         var family = new Family { Name = "Nha ctx", OwnerUserID = user.UserID };
 
         db.Users.Add(user);
@@ -1114,7 +1158,7 @@ public class FamilyContextTests
         var (_, family) = await SeedFamilyAsync(scope, FamilyMemberRole.Owner);
 
         var db = ApiFixture.Db(scope);
-        var outsider = new User { Username = $"u{Guid.NewGuid():N}", PasswordHash = "x" };
+        var outsider = TestData.NewUser();
         db.Users.Add(outsider);
         await db.SaveChangesAsync();
 
@@ -1460,7 +1504,7 @@ public sealed class TestUser
         using var scope = fixture.CreateScope();
         var db = ApiFixture.Db(scope);
 
-        var user = new User { Username = $"u{Guid.NewGuid():N}"[..20], PasswordHash = "x" };
+        var user = TestData.NewUser();
         db.Users.Add(user);
         await db.SaveChangesAsync();
 
@@ -2509,8 +2553,12 @@ Add to `AioKin/Services/Family/FamilyService.cs`:
         var members = await _db.FamilyMembers
             .AsNoTracking()
             .Where(m => m.FamilyID == membership.FamilyID && m.IsActive)
-            .OrderBy(m => m.MemberRole)
-            .ThenBy(m => m.JoinedDate)
+            // Sap theo ngay vao nha, KHONG theo vai tro: MemberRole luu duoi dang chuoi
+            // (HasConversion<string>), nen ORDER BY tren no ra Adult, Child, Owner theo bang
+            // chu cai — dung nguoc voi y dinh. Chu ho la nguoi tao nha nen vao truoc tien,
+            // va sap theo JoinedDate thi tu no dung dau danh sach.
+            .OrderBy(m => m.JoinedDate)
+            .ThenBy(m => m.FamilyMemberID)
             .Select(m => new FamilyMemberResponse
             {
                 UserUuid = m.User!.UserUUID,
@@ -2568,12 +2616,19 @@ Add to `AioKin/Services/Family/FamilyService.cs`:
         if (request.DisplayName is not null)
             target.DisplayName = request.DisplayName.Trim();
 
+        // ExecuteUpdateAsync ghi thang xuong database ngay lap tuc, con SaveChangesAsync thi
+        // ghi sau. Khong boc chung trong mot transaction thi mot loi o giua se de lai
+        // OwnerUserID da doi trong khi vai tro thi chua — gia dinh co mot chu ho tren giay to
+        // ma khong co quyen gi.
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+
         if (newRole == FamilyMemberRole.Owner)
             await _db.Families
                 .Where(f => f.FamilyID == membership.FamilyID)
                 .ExecuteUpdateAsync(s => s.SetProperty(f => f.OwnerUserID, target.UserID), cancellationToken);
 
         await _db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         // Xoa cache NGAY. Con lai thi nguoi vua bi ha cap van hanh dong voi quyen cu them 5 phut.
         await _familyContext.InvalidateAsync(familyUuid, memberUserUuid, cancellationToken);
