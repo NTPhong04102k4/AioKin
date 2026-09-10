@@ -34,6 +34,10 @@ Chot o day de khong phai tranh luan lai o tung moc.
 |---|---|---|
 | Realtime | **SignalR** + Redis backplane | Redis da bat buoc o Production; backplane gan nhu mien phi. Raw WebSocket phai tu viet lai group, reconnect, fallback. |
 | Luu file | Interface `IFileStorage`, ba ban cai (Local dev / S3-compatible / chan o Production neu roi ve Local) | Dung dung khuon `IRedisService` da co — nguoi doc code khong phai hoc mo hinh moi. |
+| Nha cung cap luu tru | **Cloudflare R2** qua `AWSSDK.S3` | Khong tinh phi egress. Xem video mp4 la thu ton bang thong nhat cua M3; tren S3 that thi egress la khoan tien lon nhat cua moc nay. |
+| Pham vi chi tieu | `Expense.FamilyID` **nullable**: null = khoan chi rieng, khac null = chung ca nha | Mot bang, mot service, hai pham vi. Xem 6.1.1 — kem mot cai bay o `Budget` phai xu ly. |
+| So gia dinh moi nguoi | **Nhieu** — `FamilyMember` la bang noi | Doi tu "mot" sang "nhieu" ve sau la migration tren du lieu that. Doi nguoc lai thi khong ai lam. |
+| Doi soat thanh toan | **Nguoi dung tu xac nhan.** Cong thanh toan tach thanh M8 | Doi soat tu dong can phap nhan doanh nghiep — xem 8.5. Khong duoc de M6 phu thuoc vao no. |
 | Phat video | **Khong proxy byte qua API.** S3 tra presigned GET TTL ngan, client goi thang; dev thi `FileStreamResult` voi `enableRangeProcessing: true` | Proxy byte bien API thanh CDN — het thread pool truoc khi het bang thong. |
 | Tien | `long`, don vi **dong VND**, khong bao gio `double` | Chia trung binh, chia deu, cong don deu phai chinh xac tuyet doi. |
 | Thoi gian | `timestamptz`, luu UTC, phat ra epoch millis | Dung quy uoc `ScheduleItemResponse` da dat. |
@@ -331,6 +335,28 @@ Task<Stream> OpenReadAsync(string key, CancellationToken ct);   // chi dung o du
 Task DeleteAsync(string key, CancellationToken ct);
 ```
 
+#### 5.1.1. Cau hinh cho Cloudflare R2
+
+R2 noi giao thuc S3 nhung khong phai S3. Bon diem lech, moi diem tung lam hong mot lan cai dat:
+
+```
+ServiceURL      https://<account-id>.r2.cloudflarestorage.com
+Region          "auto"          -- khong phai us-east-1
+ForcePathStyle  true            -- virtual-host style khong dung duoc voi endpoint tren
+```
+
+1. **Khong bao gio gui header `x-amz-acl`.** R2 tu choi moi ACL. AWSSDK them header nay o
+   mot so duong (`PutObjectRequest.CannedACL`) — de trong, dung dat `PublicRead` "cho tien".
+2. **Ghim phien ban `AWSSDK.S3`.** Cac ban moi bat checksum CRC32 mac dinh cho PUT; khi ky
+   presigned URL, checksum nam trong chu ky nhung client thi khong gui — chu ky khong khop
+   va R2 tra 403 voi thong bao khong noi len dieu gi. Neu gap, dat
+   `RequestChecksumCalculation = WhenRequired`.
+3. **Mot integration test that voi bucket R2 that, chay truoc moi viec khac cua M3.** Cap
+   ticket, PUT bang `HttpClient`, doc lai header, GET bang presigned URL. Chot hop dong
+   truoc khi xay gi len tren — giong cach muc 3.3 doi voi Goong.
+4. **Egress mien phi, nhung thao tac Class A (ghi, liet ke) thi tinh tien.** Khong liet ke
+   bucket trong duong request; danh sach file doc tu bang `MediaAsset`, khong tu storage.
+
 ### 5.2. Entity — schema `media`
 
 ```
@@ -442,17 +468,23 @@ ngay thi ghi thang vao backlog — dung de no bien mat.
 ```
 ExpenseCategory   ExpenseCategoryID · FamilyID(nullable = danh muc he thong) · Code · Name
                   · Icon · ColorHex · SortOrder · IsActive
-Expense           ExpenseID(Guid) · ExpenseUUID(unique) · FamilyID · PaidByUserID
+Expense           ExpenseID(Guid) · ExpenseUUID(unique) · FamilyID(nullable) · PaidByUserID
                   · CategoryID · AmountVnd(long) · Note · OccurredAt(date)
                   · ReceiptMediaID(nullable) · CreatedByUserID · CreatedDate · DeletedAt
                   -> INDEX(FamilyID, OccurredAt DESC); INDEX(FamilyID, CategoryID, OccurredAt)
+                  -> INDEX(PaidByUserID, OccurredAt DESC) WHERE FamilyID IS NULL
 ExpenseShare      ExpenseShareID · ExpenseID · UserID · AmountVnd(long)
                   -- chia mot khoan cho nhieu nguoi; tong phai bang Expense.AmountVnd
-Budget            BudgetID · FamilyID · CategoryID(nullable = tong) · PeriodMonth(date)
-                  · LimitVnd(long)
-                  -> UNIQUE(FamilyID, CategoryID, PeriodMonth)
-RecurringExpense  RecurringExpenseID · FamilyID · CategoryID · AmountVnd · Note
+                  -- CAM khi Expense.FamilyID IS NULL
+Budget            BudgetID · FamilyID(nullable) · OwnerUserID(nullable)
+                  · CategoryID(nullable = tong) · PeriodMonth(date) · LimitVnd(long)
+                  -> UNIQUE(FamilyID, CategoryID, PeriodMonth) WHERE FamilyID IS NOT NULL
+                  -> UNIQUE(OwnerUserID, CategoryID, PeriodMonth) WHERE OwnerUserID IS NOT NULL
+                  -> CHECK (FamilyID IS NULL) <> (OwnerUserID IS NULL)
+RecurringExpense  RecurringExpenseID · FamilyID(nullable) · OwnerUserID(nullable)
+                  · CategoryID · AmountVnd · Note
                   · Rrule · NextRunAt · PayeeAccountID(nullable) · IsActive
+                  -> CHECK (FamilyID IS NULL) <> (OwnerUserID IS NULL)
 ```
 
 `AmountVnd` la `long`, don vi dong. Khong `decimal`, khong `double`. Rang buoc CHECK
@@ -462,6 +494,32 @@ RecurringExpense  RecurringExpenseID · FamilyID · CategoryID · AmountVnd · N
 `Expense.AmountVnd`. Kiem tra trong service **va** bang mot CHECK/trigger neu lam duoc —
 lech o day la sai so tich luy khong ai phat hien ra.
 
+### 6.1.1. Hai pham vi: khoan chi rieng va khoan chi chung
+
+`Expense.FamilyID` **nullable**: `null` la khoan chi ca nhan (chu so huu la `PaidByUserID`,
+chi minh nguoi do doc duoc), khac null la khoan chi chung ca nha. Mot bang, mot service,
+hai pham vi — danh muc, ngan sach va thong ke dung lai duoc het.
+
+Ba dieu bat buoc di kem, moi dieu vi mot ly do cu the:
+
+1. **Index rieng cho pham vi ca nhan.** `INDEX(FamilyID, OccurredAt DESC)` khong phuc vu
+   duoc truy van `FamilyID IS NULL AND PaidByUserID = ?`. Phai co partial index rieng.
+
+2. **`ExpenseShare` bi cam khi `FamilyID IS NULL`.** Mot khoan chi rieng khong co ai de chia
+   voi. Khong chan thi bang tich luy nhung dong khong endpoint nao doc — sai lech im lang.
+
+3. **`Budget` phai co `OwnerUserID` va hai partial unique index.** Day la cai bay: Postgres
+   coi `NULL` la khac nhau trong unique index, nen chi doi `FamilyID` sang nullable la mot
+   nguoi tao duoc **vo han** ngan sach trung nhau cho cung danh muc + cung thang, khong bao
+   loi gi ca — va con so "da dung bao nhieu phan tram ngan sach" khi do phu thuoc vao dong
+   nao truy van cham phai truoc. `RecurringExpense` cung the.
+
+`ExpenseCategory`: khoan chi rieng dung danh muc he thong (`FamilyID IS NULL`) va danh muc
+cua bat ky gia dinh nao minh thuoc. **Khong lam danh muc rieng theo tung nguoi** o vong nay.
+
+Rule CASL cho `Expense` co them mot nhanh ca nhan dat dieu kien tren `PaidByUserID`. Thu tu
+rule van la ngu nghia (muc 1.1) — nhanh moi dat dung cho, khong sap xep lai nhanh cu.
+
 ### 6.2. Endpoint
 
 | Method | Duong dan | Ghi chu |
@@ -470,11 +528,28 @@ lech o day la sai so tich luy khong ai phat hien ra.
 | GET | `/families/{uuid}/expenses?from=&to=&categoryId=&paidBy=&cursor=` | |
 | GET | `/families/{uuid}/stats/summary?from=&to=` | Tong, trung binh/ngay, so giao dich |
 | GET | `/families/{uuid}/stats/by-category?from=&to=` | Cho bieu do tron |
-| GET | `/families/{uuid}/stats/by-member?from=&to=` | Ai chi bao nhieu |
+| GET | `/families/{uuid}/stats/by-member?from=&to=` | Ai chi bao nhieu — **chi pham vi gia dinh** |
 | GET | `/families/{uuid}/stats/trend?months=12` | Cho bieu do duong |
 | GET/PUT | `/families/{uuid}/budgets?month=` | Han muc + phan tram da dung |
 | CRUD | `/families/{uuid}/recurring-expenses` | "Cac khoan thuong dung" |
 | GET | `/expense-categories` | Danh muc he thong + cua gia dinh |
+
+Pham vi ca nhan dung dung nhung service do, khac moi duong dan va khong nhan `familyUuid`:
+
+| Method | Duong dan | Ghi chu |
+|---|---|---|
+| POST/GET/PATCH/DELETE | `/me/expenses` | Khoan chi rieng. Khong nhan `shares`. |
+| GET | `/me/expenses?from=&to=&categoryId=&cursor=` | |
+| GET | `/me/stats/summary?from=&to=` · `/me/stats/by-category` · `/me/stats/trend` | |
+| GET/PUT | `/me/budgets?month=` | |
+| CRUD | `/me/recurring-expenses` | |
+
+Khong co `/me/stats/by-member`: khoan chi rieng chi co mot nguoi.
+
+**Pham vi suy ra tu duong dan, khong bao gio tu tham so.** `/me/*` ep
+`FamilyID IS NULL AND PaidByUserID = <token>`; `/families/{uuid}/*` ep `FamilyID = <uuid da
+qua IFamilyContext>`. Khong co endpoint nao nhan mot tham so `scope` — mot tham so nhu vay
+la duong de doc so chi tieu rieng cua nguoi khac.
 
 ### 6.3. Thong ke lam o SQL, khong lam trong bo nho
 
@@ -725,9 +800,18 @@ Ngan hang khong phat webhook bien dong so du cho ung dung ca nhan. Duong hop pha
 | API ngan hang truc tiep (VCB, MB, ACB...) | Hop dong doanh nghiep, thuong kem yeu cau ve quy mo. |
 | Nguoi dung tu xac nhan | Khong can gi. Do chinh xac phu thuoc nguoi dung. |
 
-**Khuyen nghi:** ship duong 3 truoc (sau khi chuyen xong, nguoi dung bam "da chuyen" ->
-ghi `Expense`, dinh anh chup man hinh bien lai vao `ReceiptMediaID`). Duong 1 la mot moc
-rieng, mo khi co phap nhan. Dung de M6 phu thuoc vao no.
+**Da chot: duong 3.** Sau khi chuyen xong, nguoi dung bam "da chuyen" -> ghi `Expense`,
+dinh anh chup man hinh bien lai vao `ReceiptMediaID`. **M6 vi vay phu thuoc ca M3**, khong
+chi M4.
+
+Dieu nay phai noi thang trong UI, khong duoc lam mo: **AioKin khong kiem chung duoc tien da
+den hay chua.** `UsedAt` nghia la nguoi dung noi ho da chuyen, khong phai ngan hang xac
+nhan. Mot man hinh ghi "Da thanh toan" ma thuc te chi la mot cai nut nguoi dung tu bam se
+bi tin nham dung mot lan — va lan do la mot khoan tien that.
+
+Cong thanh toan tro thanh **M8**, mot moc rieng chua len lich: mot webhook handler, xac minh
+chu ky, idempotency key, doi chieu so tien va noi dung chuyen khoan. Cong them, khong sua
+lai M6.
 
 ### 8.6. (Tuy chon) Lop AI cham diem rui ro
 
@@ -762,8 +846,11 @@ Khong them thu vien QR/EMVCo — `EmvcoQrBuilder` tu viet, khoang 150 dong, va t
 
 ```
 Goong:ApiKey                   Prod bat buoc
-Storage:Provider               Local | S3
-Storage:S3:Endpoint / Bucket / AccessKey / SecretKey / Region
+Storage:Provider               Local | S3          (S3 = R2, xem 5.1.1)
+Storage:S3:ServiceUrl          https://<account-id>.r2.cloudflarestorage.com
+Storage:S3:Bucket / AccessKey / SecretKey
+Storage:S3:Region              "auto"
+Storage:S3:ForcePathStyle      true
 Storage:LocalPath              chi Development
 Media:MaxVideoBytes            ...
 Family:DefaultQuotaBytes
@@ -835,12 +922,20 @@ Theo `docs/git-flow.md`: `feat/<mo-ta-ngan>`, nham duoi mot tuan mot nhanh.
 | M1 Goong | `feat/goong-places` | M0 (SavedPlace dung chung) | 3-4 ngay |
 | M2 Chat | `feat/realtime-chat` | M0 | 6-8 ngay |
 | M3 Media | `feat/media-storage` | M0 | 6-8 ngay |
-| M4 Chi tieu | `feat/family-expenses` | M0, M3 (anh bien lai) | 5-6 ngay |
+| M4 Chi tieu | `feat/expenses` | M0, M3 (anh bien lai) | 6-7 ngay |
 | M5 Todo/Calendar | `feat/schedule-v2` | M0, M1 | 4-5 ngay |
-| M6 QR | `feat/qr-payment` | M0, M4, M5 | 6-8 ngay |
+| M6 QR | `feat/qr-payment` | M0, M3, M4, M5 | 6-8 ngay |
 | M7 Hardening | `chore/hardening` | tat ca | 3-4 ngay |
+| M8 Cong thanh toan | `feat/payment-gateway` | M6 + **phap nhan doanh nghiep** | chua len lich |
 
 M1, M2, M3 doc lap nhau — lam song song duoc sau khi M0 merge.
+
+M4 tang tu 5-6 len 6-7 ngay: them pham vi ca nhan (`/me/*`, `OwnerUserID` tren `Budget` va
+`RecurringExpense`, bo test ranh gioi giua hai pham vi). Nhanh doi ten tu
+`feat/family-expenses` thanh `feat/expenses` vi moc nay khong con chi lam pham vi gia dinh.
+
+M8 **khong nam trong duong toi han**. No mo khi co phap nhan doanh nghiep de ky hop dong voi
+cong thanh toan — mot dieu kien ngoai tam kiem soat cua nguoi viet code.
 
 **Khong bat dau M6 truoc khi M4 xong**: `TransferIntent` phai gan duoc vao mot khoan chi
 that, neu khong no chi la mot co che cap quyen lo lung khong ai kiem tra lai duoc.
@@ -860,15 +955,32 @@ that, neu khong no chi la mot co che cap quyen lo lung khong ai kiem tra lai duo
 | 7 | Gia tri du lieu tang manh -> muc tieu hap dan | **Cao** | Muc 9.4 |
 | 8 | Hop dong Goong API co the khac bang o muc 3.3 | Thap | Doi chieu docs truoc khi code; mot integration test that de chot |
 | 9 | Rang buoc `SUM(ExpenseShare) == Expense.AmountVnd` de lech | Trung binh | Kiem tra o service + test; xet CHECK o database |
+| 10 | `Budget.FamilyID` nullable lam unique index mat hieu luc (Postgres coi NULL la khac nhau) -> ngan sach trung, so phan tram sai im lang | **Cao** | Muc 6.1.1: them `OwnerUserID`, hai partial unique index, mot CHECK. Test tao trung phai that bai |
+| 11 | Khoan chi rieng ro ri sang pham vi gia dinh (hoac nguoc lai) | **Cao** | Pham vi suy ra tu duong dan, khong tu tham so; test ranh gioi cho ca hai chieu |
+| 12 | R2 khong phai S3: ACL, checksum presigned, path style | Trung binh | Muc 5.1.1; mot integration test that chay truoc moi viec khac cua M3 |
+| 13 | Nguoi dung tin "Da thanh toan" la ngan hang xac nhan, trong khi do chi la ho tu bam | Trung binh | Muc 8.5 — UI phai noi thang la tu xac nhan |
 
 ---
 
-## 12. Ba dieu can quyet dinh truoc khi go dong code dau tien
+## 12. Bon dieu da quyet dinh (2026-09-10)
 
-1. **Nha cung cap storage**: Cloudflare R2 (re, khong tinh phi egress) / AWS S3 / MinIO tu
-   host. Anh huong den `S3FileStorage` va chi phi van hanh.
-2. **Co theo duoi doi soat thanh toan tu dong khong**, va neu co thi qua cong nao. Quyet
-   dinh nay doi hinh dang cua M6 nhung **khong chan** phan con lai cua M6.
-3. **Mot nguoi mot gia dinh, hay mot nguoi nhieu gia dinh.** Thiet ke tren dang cho **nhieu**
-   (`FamilyMember` la bang noi). Neu chac chan chi can mot thi don gian hoa duoc dang ke —
-   nhung doi chieu lai ve sau thi rat dat.
+Muc nay truoc day la ba cau hoi de ngo. Tat ca da chot; ghi lai ca lua chon lan cai bi loai
+de sau nay khong ai mo lai cuoc tranh luan tu dau.
+
+| # | Cau hoi | Da chot | Loai bo |
+|---|---|---|---|
+| 1 | Nha cung cap luu tru | **Cloudflare R2** — xem 5.1.1 | AWS S3 (phi egress theo GB, ma mp4 la thu ton egress nhat), MinIO tu host (tu lo dia va sao luu) |
+| 2 | Doi soat thanh toan | **Nguoi dung tu xac nhan**; cong thanh toan thanh M8 rieng | Tich hop cong ngay (can phap nhan doanh nghiep — chua co) |
+| 3 | Mot hay nhieu gia dinh moi nguoi | **Nhieu** — giu `FamilyMember` la bang noi | Mot gia dinh moi nguoi (don gian hon nhung khoa cung: khong the vua o nha minh vua o nhom ban be) |
+| 4 | Chi tieu ca nhan | **`Expense.FamilyID` nullable** — mot bang, hai pham vi. Xem 6.1.1 | Hai bang tach rieng (nhan doi service va DTO), bo han pham vi chia se (mat "ai no ai") |
+
+Cau hoi 4 khong nam trong ban goc: no den tu yeu cau "user can personal expense management",
+ma M4 ban dau thiet ke `Expense` hoan toan theo pham vi gia dinh.
+
+### 12.1. Con lai mot dieu chua chot
+
+**`ffmpeg` chay o dau** (muc 5.7). No la phu thuoc ha tang that: hoac them vao image Docker
+cua API — image nang them dang ke va job sinh thumbnail dung chung CPU voi request — hoac
+tach worker Hangfire ra mot container rieng. Quyet dinh nay **khong chan M0..M2**, va can
+tra loi truoc khi bat dau muc 5.7 cua M3. Duong roi da co san: thieu `ThumbnailKey` thi app
+hien icon theo `Kind`, khong lam hong asset.
