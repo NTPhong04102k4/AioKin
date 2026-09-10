@@ -4,7 +4,7 @@ namespace AioKin.Services.Auth.Email;
 
 /// <summary>
 /// Noi dung HTML cho email giao dich. Moi gia tri do nguoi dung kiem soat deu di qua
-/// <see cref="WebUtility.HtmlEncode"/> — ten hien thi la du lieu nguoi dung nhap, khong
+/// <see cref="WebUtility.HtmlEncode(string)"/> — ten hien thi la du lieu nguoi dung nhap, khong
 /// duoc phep tro thanh markup trong hom thu cua nguoi khac.
 /// </summary>
 public static class EmailTemplates
@@ -80,14 +80,14 @@ public static class EmailTemplates
         $"""<p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:24px 0;color:#111">{E(code)}</p>""";
 
     private static string Layout(string heading, string body) =>
-        $"""
+        $$"""
          <!doctype html>
          <html><body style="margin:0;padding:24px;background:#f5f5f4;font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#1c1917">
            <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:32px">
-             <h1 style="margin:0 0 16px;font-size:20px">{E(heading)}</h1>
-             <style>.muted{{color:#78716c;font-size:13px}}</style>
-             {body}
-             <p style="margin-top:32px;color:#a8a29e;font-size:12px">{BrandName}</p>
+             <h1 style="margin:0 0 16px;font-size:20px">{{E(heading)}}</h1>
+             <style>.muted{color:#78716c;font-size:13px}</style>
+             {{body}}
+             <p style="margin-top:32px;color:#a8a29e;font-size:12px">{{BrandName}}</p>
            </div>
          </body></html>
          """;

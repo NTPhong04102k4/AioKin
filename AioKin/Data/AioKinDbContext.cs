@@ -34,10 +34,17 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
             // Tra cuu khi dang nhap SSO — mot social id chi gan duoc mot tai khoan.
             entity.HasIndex(u => u.IDSocial).IsUnique().HasFilter("id_social IS NOT NULL");
 
-            // FullName do Postgres tinh, khong bao gio ghi tu ung dung. Dung concat_ws
-            // de mot ve NULL khong nuot ca chuoi nhu toan tu || se lam.
+            // FullName do Postgres tinh, khong bao gio ghi tu ung dung.
+            //
+            // Bieu thuc phai IMMUTABLE thi Postgres moi cho lam cot GENERATED. CONCAT_WS
+            // va CONCAT chi la STABLE (chung phu thuoc ham xuat cua kieu du lieu), nen
+            // dung chung se bi tu choi voi loi 42P17. COALESCE + toan tu || deu immutable:
+            // COALESCE lo phan mot ve NULL khong nuot ca chuoi, NULLIF tra ve NULL thay vi
+            // chuoi rong khi ca hai ve deu trong.
             entity.Property(u => u.FullName)
-                .HasComputedColumnSql("""TRIM(CONCAT_WS(' ', "first_name", "last_name"))""", stored: true);
+                .HasComputedColumnSql(
+                    """NULLIF(TRIM(COALESCE("first_name", '') || ' ' || COALESCE("last_name", '')), '')""",
+                    stored: true);
         });
 
         modelBuilder.Entity<Staff>(entity =>
