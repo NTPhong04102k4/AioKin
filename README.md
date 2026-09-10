@@ -84,6 +84,35 @@ Danh tinh luon lay tu token, khong bao gio tu tham so.
 `POST /auth/admin/login` · `POST /auth/admin/staff` *(SuperAdmin)* ·
 `PUT /auth/admin/staff/{id}/password` · `POST /auth/admin/superadmin/recover-password`
 
+### `/posts` · `/todos` · `/ability` — hop dong voi app Android
+
+Ba nhom nay phuc vu app `com.ntp.aiokin`, va **khong boc `OperationResult` o duong thanh
+cong**: `ApiService` khai kieu tra ve la `List<...>` nen Gson cho mot mang JSON tran. Duong
+loi thi van boc nhu phan con lai cua API — Retrofit nem `HttpException` truoc khi parse body
+voi moi status khong phai 2xx, nen khong dung nham kieu duoc.
+
+| Method | Duong dan | Quyen | Ghi chu |
+|---|---|---|---|
+| GET | `/posts` | Cong khai | The Kham pha da publish, moi nhat truoc |
+| GET | `/posts/{id}` | Cong khai | 404 khi khong ton tai hoac chua publish |
+| GET | `/todos` | `Customer` | Lich trinh **cua chinh nguoi goi**, sap theo gio bat dau |
+| GET | `/ability/rules` | Da dang nhap | Bo rule CASL cua role trong token |
+
+Ten route lech voi ten domain la **co y**: entity la `DiscoveryItem` / `ScheduleItem` (cung
+la chuoi `subject` trong rule phan quyen), con `/posts` va `/todos` la duong dan `ApiService`
+ben Android dang goi — di tich tu thoi app tro tam sang jsonplaceholder. Doi route thi phai
+doi ca hai dau cung luc, neu khong app 404 ngay.
+
+`/todos` lay danh tinh tu token, khong co tham so `userId` nao — nhan id tu client nghia la
+doi mot con so la doc duoc lich cua nguoi khac.
+
+`/ability/rules` doc cot `security.roles.permissions` (JSON tho, sua duoc bang tay).
+**Thu tu phan tu la ngu nghia**: rule dung sau thang rule dung truoc, nen `can(read, X)` roi
+`cannot(update, X)` nghia la "doc duoc nhung khong sua". Dao hai dong thi luat cam bien mat
+ma khong bao loi o dau ca — vi vay khong tang nao trong duong di duoc phep sap xep lai.
+JSON hong thi tra mang rong, tuc cam tat ca: phat mot bo rule doc dang phan nua con nguy
+hiem hon la khong phat gi.
+
 ### `/admin` — quan ly
 
 | Nhom | Duong dan | Quyen |

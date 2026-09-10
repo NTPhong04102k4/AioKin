@@ -13,11 +13,13 @@ using AioKin.Services.Auth.Email;
 using AioKin.Services.Auth.OAuth;
 using AioKin.Services.Auth.Otp;
 using AioKin.Services.Auth.PasswordUser;
+using AioKin.Services.Auth.Permissions;
 using AioKin.Services.Auth.RefreshToken;
 using AioKin.Services.Auth.StaffManagement;
 using AioKin.Services.Auth.Token;
 using AioKin.Services.Auth.User;
 using AioKin.Services.Common.Cache;
+using AioKin.Services.Content;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -223,6 +225,15 @@ builder.Services.AddScoped<ISuperAdminGuardService, SuperAdminGuardService>();
 builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
 builder.Services.AddScoped<IStaffManagementService, StaffManagementService>();
 builder.Services.AddScoped<IOAuthService, OAuthService>();
+builder.Services.AddScoped<IPermissionService, PermissionService>();
+
+// ─── Service tang Content ─────────────────────────────────────────────────────
+//
+// Chi doc, va deu cham AioKinDbContext — Scoped de dung mot DbContext voi phan con lai
+// cua request thay vi mo them ket noi rieng.
+
+builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
+builder.Services.AddScoped<IScheduleService, ScheduleService>();
 
 // ─── Xac thuc ─────────────────────────────────────────────────────────────────
 

@@ -14,6 +14,8 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
     public DbSet<Staff> Staffs => Set<Staff>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<Location> Locations => Set<Location>();
+    public DbSet<DiscoveryItem> DiscoveryItems => Set<DiscoveryItem>();
+    public DbSet<ScheduleItem> ScheduleItems => Set<ScheduleItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -67,5 +69,31 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
         modelBuilder.Entity<Role>(entity => entity.HasIndex(r => r.RoleName).IsUnique());
 
         modelBuilder.Entity<Location>(entity => entity.HasIndex(l => l.LocationCode).IsUnique());
+
+        modelBuilder.Entity<DiscoveryItem>(entity =>
+        {
+            // Truy van duy nhat cua man Kham pha la "bai da publish, moi nhat truoc" — index
+            // phu dung thu tu do de Postgres khong phai sort lai ca bang sau moi lan loc.
+            entity.HasIndex(d => new { d.IsPublished, d.CreatedDate });
+
+            // Danh muc duoc loc o tang UI, nhung khi so bai lon len thi bo loc se chuyen
+            // xuong duoi nay; co san index thi luc do khong phai them migration.
+            entity.HasIndex(d => d.Category);
+        });
+
+        modelBuilder.Entity<ScheduleItem>(entity =>
+        {
+            // Moi truy van deu la "lich cua mot nguoi, sap theo gio bat dau" — index ghep
+            // theo dung cap do phuc vu ca phan loc lan phan sap xep trong mot lan quet.
+            entity.HasIndex(s => new { s.UserID, s.StartAt });
+
+            // Cascade chu khong Restrict: lich trinh khong ton tai doc lap voi chu cua no.
+            // Restrict o day nghia la xoa mot tai khoan se that bai voi loi khoa ngoai, con
+            // du lieu rieng tu cua nguoi da roi di thi nam lai trong bang.
+            entity.HasOne(s => s.User)
+                .WithMany()
+                .HasForeignKey(s => s.UserID)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 }
