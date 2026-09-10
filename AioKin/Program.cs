@@ -505,3 +505,10 @@ static async Task InitializeDatabaseAsync(WebApplication app)
         throw;
     }
 }
+
+/// <summary>
+/// Top-level statement sinh ra class Program voi pham vi internal, ma
+/// WebApplicationFactory&lt;Program&gt; thi can no public. Khai bao partial nay chi de mo
+/// pham vi — khong them thanh vien nao.
+/// </summary>
+public partial class Program { }
