@@ -165,9 +165,11 @@ Create `AioKin.Tests/Infrastructure/ApiFixture.cs`:
 
 ```csharp
 using AioKin.Data;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using Xunit;
 
 namespace AioKin.Tests.Infrastructure;
 
@@ -263,6 +265,8 @@ public sealed class ApiFixture : IAsyncLifetime
 Create `AioKin.Tests/Infrastructure/ApiCollection.cs`:
 
 ```csharp
+using Xunit;
+
 namespace AioKin.Tests.Infrastructure;
 
 /// <summary>
@@ -283,6 +287,7 @@ Create `AioKin.Tests/Infrastructure/HarnessTests.cs`:
 ```csharp
 using AioKin.Common;
 using Microsoft.EntityFrameworkCore;
+using Xunit;
 
 namespace AioKin.Tests.Infrastructure;
 
@@ -406,9 +411,10 @@ Create `AioKin.Tests/Family/FamilySchemaTests.cs`:
 
 ```csharp
 using AioKin.Data.Entities.Family;
-using AioKin.Data.Entities.Security;
 using AioKin.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Xunit;
+using FamilyDb = AioKin.Data.Entities.Family.Family;
 
 namespace AioKin.Tests.Family;
 
@@ -426,7 +432,7 @@ public class FamilySchemaTests
         var db = ApiFixture.Db(scope);
 
         var user = TestData.NewUser();
-        var family = new Family { Name = "Nha test", OwnerUserID = user.UserID };
+        var family = new FamilyDb { Name = "Nha test", OwnerUserID = user.UserID };
         db.Users.Add(user);
         db.Families.Add(family);
         db.FamilyMembers.Add(new FamilyMember
@@ -454,8 +460,8 @@ public class FamilySchemaTests
         var db = ApiFixture.Db(scope);
 
         var owner = TestData.NewUser();
-        var a = new Family { Name = "Nha A", OwnerUserID = owner.UserID };
-        var b = new Family { Name = "Nha B", OwnerUserID = owner.UserID };
+        var a = new FamilyDb { Name = "Nha A", OwnerUserID = owner.UserID };
+        var b = new FamilyDb { Name = "Nha B", OwnerUserID = owner.UserID };
         db.Users.Add(owner);
         db.Families.AddRange(a, b);
 
@@ -489,7 +495,7 @@ public class FamilySchemaTests
         var db = ApiFixture.Db(scope);
 
         var user = TestData.NewUser();
-        var family = new Family { Name = "Nha xoa", OwnerUserID = user.UserID };
+        var family = new FamilyDb { Name = "Nha xoa", OwnerUserID = user.UserID };
         db.Users.Add(user);
         db.Families.Add(family);
         db.FamilyMembers.Add(new FamilyMember
@@ -801,6 +807,7 @@ using AioKin.Common;
 using AioKin.Data.Entities.Family;
 using AioKin.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Xunit;
 
 namespace AioKin.Tests.Family;
 
@@ -953,6 +960,7 @@ Create `AioKin.Tests/Family/InviteCodeGeneratorTests.cs`:
 
 ```csharp
 using AioKin.Services.Family;
+using Xunit;
 
 namespace AioKin.Tests.Family;
 
@@ -1089,6 +1097,8 @@ using AioKin.Tests.Infrastructure;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
+using Xunit;
+using FamilyDb = AioKin.Data.Entities.Family.Family;
 
 namespace AioKin.Tests.Family;
 
@@ -1115,12 +1125,12 @@ public class FamilyContextTests
         return scope.ServiceProvider.GetRequiredService<IFamilyContext>();
     }
 
-    private static async Task<(User User, Family Family)> SeedFamilyAsync(
+    private static async Task<(User User, FamilyDb Family)> SeedFamilyAsync(
         IServiceScope scope, FamilyMemberRole role)
     {
         var db = ApiFixture.Db(scope);
         var user = TestData.NewUser();
-        var family = new Family { Name = "Nha ctx", OwnerUserID = user.UserID };
+        var family = new FamilyDb { Name = "Nha ctx", OwnerUserID = user.UserID };
 
         db.Users.Add(user);
         db.Families.Add(family);
@@ -1539,6 +1549,7 @@ using AioKin.Tests.Infrastructure;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Xunit;
 
 namespace AioKin.Tests.Family;
 
@@ -1914,6 +1925,7 @@ using AioKin.Tests.Infrastructure;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Xunit;
 
 namespace AioKin.Tests.Family;
 
@@ -2320,6 +2332,7 @@ using AioKin.Tests.Infrastructure;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Xunit;
 
 namespace AioKin.Tests.Family;
 
