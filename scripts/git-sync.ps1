@@ -19,7 +19,7 @@ $ErrorActionPreference = "Stop"
 $current = (git rev-parse --abbrev-ref HEAD).Trim()
 
 if ($current -eq "HEAD") {
-    Write-Error "Dang o trang thai detached HEAD — checkout mot nhanh truoc da."
+    Write-Error "Dang o trang thai detached HEAD - checkout mot nhanh truoc da."
     exit 1
 }
 

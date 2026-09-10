@@ -12,7 +12,7 @@ BASE="${1:-main}"
 CURRENT="$(git rev-parse --abbrev-ref HEAD)"
 
 if [ "$CURRENT" = "$BASE" ]; then
-    echo "Dang dung tren '$BASE' — khong co nhanh tinh nang nao de don." >&2
+    echo "Dang dung tren '$BASE' - khong co nhanh tinh nang nao de don." >&2
     exit 1
 fi
 
@@ -26,21 +26,21 @@ echo "==> Ve '$BASE' va cap nhat"
 git switch "$BASE"
 git fetch origin --prune
 
-# --ff-only: neu khong tua thang duoc thi nhanh goc cuc bo da lech — dung lai de nguoi
+# --ff-only: neu khong tua thang duoc thi nhanh goc cuc bo da lech - dung lai de nguoi
 # dung xu ly, thay vi tu tao mot commit merge khong ai mong doi.
 git pull --ff-only
 
-# Squash merge tao ra commit moi, khong phai commit cua nhanh — nen 'git branch -d'
+# Squash merge tao ra commit moi, khong phai commit cua nhanh - nen 'git branch -d'
 # se bao "chua merge". Doi chieu bang noi dung cay thu muc thay vi bang lich su.
 MERGE_BASE="$(git merge-base "$BASE" "$CURRENT")"
 BRANCH_TREE="$(git rev-parse "$CURRENT^{tree}")"
 SQUASHED_COMMIT="$(git commit-tree "$BRANCH_TREE" -p "$MERGE_BASE" -m _ 2>/dev/null || true)"
 
 if [ -n "$SQUASHED_COMMIT" ] && [ -z "$(git cherry "$BASE" "$SQUASHED_COMMIT" | grep '^+' || true)" ]; then
-    echo "==> '$CURRENT' da nam trong '$BASE' (squash merge) — xoa"
+    echo "==> '$CURRENT' da nam trong '$BASE' (squash merge) - xoa"
     git branch -D "$CURRENT"
 elif git branch --merged "$BASE" | grep -qx "  $CURRENT"; then
-    echo "==> '$CURRENT' da duoc merge — xoa"
+    echo "==> '$CURRENT' da duoc merge - xoa"
     git branch -d "$CURRENT"
 else
     echo "'$CURRENT' chua nam trong '$BASE'. Khong xoa." >&2

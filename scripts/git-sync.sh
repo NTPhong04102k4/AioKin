@@ -12,7 +12,7 @@ BASE="${1:-main}"
 CURRENT="$(git rev-parse --abbrev-ref HEAD)"
 
 if [ "$CURRENT" = "HEAD" ]; then
-    echo "Dang o trang thai detached HEAD — checkout mot nhanh truoc da." >&2
+    echo "Dang o trang thai detached HEAD - checkout mot nhanh truoc da." >&2
     exit 1
 fi
 
