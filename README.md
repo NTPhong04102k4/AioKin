@@ -142,6 +142,21 @@ dotnet ef migrations add <Ten> --project AioKin/AioKin.csproj --output-dir Data/
 dotnet ef database update --project AioKin/AioKin.csproj
 ```
 
+### Cap nhat bo rule CASL cho database da seed
+
+`DbSeeder` chi ghi rule vao role dang de rong, de khong xoa mat cong sua bang tay. Vi vay
+sau khi them entity moi (vi du `Family` o M0), database **da chay tu truoc** se khong tu
+nhan rule moi — `/ability/rules` van phat bo rule cu va app am tham cam tinh nang moi.
+
+Xoa cot de seeder ghi lai o lan khoi dong sau:
+
+```sql
+UPDATE security.roles SET permissions = '[]' WHERE role_name = 'Customer';
+```
+
+Chi lam khi bo rule cua role do chua bi sua bang tay. Neu da sua, them rule moi vao cuoi
+mang bang tay — **cuoi mang**, vi rule dung sau thang rule dung truoc.
+
 ## Dong gop
 
 Quy uoc nhanh, commit, rebase va merge: [`docs/git-flow.md`](docs/git-flow.md).

@@ -1,5 +1,6 @@
 using AioKin.Common;
 using AioKin.Data.Entities.Core;
+using AioKin.Data.Entities.Family;
 using AioKin.Data.Entities.Security;
 using Microsoft.EntityFrameworkCore;
 
@@ -75,7 +76,11 @@ public static class DbSeeder
             [
               {"action":"read","subject":"{{DiscoveryItem.SubjectType}}"},
               {"action":["create","update","delete"],"subject":"{{DiscoveryItem.SubjectType}}","inverted":true,"reason":"Noi dung Kham pha do ban bien tap quan ly."},
-              {"action":"manage","subject":"{{ScheduleItem.SubjectType}}"}
+              {"action":"manage","subject":"{{ScheduleItem.SubjectType}}"},
+              {"action":["read","create"],"subject":"{{Family.SubjectType}}"},
+              {"action":["update","delete"],"subject":"{{Family.SubjectType}}","inverted":true,"reason":"Chi chu ho moi sua duoc thong tin gia dinh."},
+              {"action":"read","subject":"{{FamilyMember.SubjectType}}"},
+              {"action":["read","create"],"subject":"{{FamilyInvite.SubjectType}}"}
             ]
             """;
 
