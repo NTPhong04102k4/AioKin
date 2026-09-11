@@ -240,6 +240,7 @@ builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
 builder.Services.AddScoped<IScheduleService, ScheduleService>();
 builder.Services.AddScoped<IFamilyContext, FamilyContext>();
+builder.Services.AddScoped<IFamilyService, FamilyService>();
 
 // ─── Xac thuc ─────────────────────────────────────────────────────────────────
 

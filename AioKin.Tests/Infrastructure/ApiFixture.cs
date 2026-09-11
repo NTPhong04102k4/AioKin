@@ -113,6 +113,9 @@ public sealed class ApiFixture : IAsyncLifetime
     public IServiceScope CreateScope()
         => _factory!.Services.CreateScope();
 
+    /// <summary>HttpClient moi, chua gan token. Dung khi can nhieu danh tinh trong mot test.</summary>
+    public HttpClient CreateClient() => _factory!.CreateClient();
+
     /// <summary>DbContext moi trong mot scope moi. Nho dispose scope kem theo.</summary>
     public static AioKinDbContext Db(IServiceScope scope)
         => scope.ServiceProvider.GetRequiredService<AioKinDbContext>();
