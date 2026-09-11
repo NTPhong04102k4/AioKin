@@ -38,10 +38,6 @@ public static class RedisKeys
     /// <summary>Tu cach thanh vien da phan giai. Xoa NGAY khi doi vai tro hoac go thanh vien.</summary>
     public static string FamilyMembership(Guid familyUuid, Guid userUuid)
         => $"family:{familyUuid}:member:{userUuid}";
-
-    /// <summary>Tien to de xoa cache cua ca gia dinh mot lan.</summary>
-    public static string FamilyMembershipPrefix(Guid familyUuid)
-        => $"family:{familyUuid}:member:";
 }
 
 /// <summary>TTL mac dinh cho tung loai key.</summary>

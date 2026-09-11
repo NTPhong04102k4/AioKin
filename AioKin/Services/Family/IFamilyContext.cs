@@ -19,7 +19,4 @@ public interface IFamilyContext
 
     /// <summary>Xoa cache cua mot nguoi trong mot gia dinh. Goi ngay khi doi vai tro hoac go thanh vien.</summary>
     Task InvalidateAsync(Guid familyUuid, Guid userUuid, CancellationToken cancellationToken = default);
-
-    /// <summary>Xoa cache cua ca gia dinh. Goi khi gia dinh bi vo hieu hoa hoac xoa.</summary>
-    Task InvalidateFamilyAsync(Guid familyUuid, CancellationToken cancellationToken = default);
 }

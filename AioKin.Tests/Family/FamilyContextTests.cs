@@ -119,6 +119,23 @@ public class FamilyContextTests
     }
 
     [Fact]
+    public async Task Gia_dinh_bi_vo_hieu_hoa_thi_thanh_vien_khong_con_phan_giai_duoc()
+    {
+        using var scope = _fixture.CreateScope();
+        var (user, family) = await SeedFamilyAsync(scope, FamilyMemberRole.Adult);
+
+        var db = ApiFixture.Db(scope);
+        var familyRow = db.Families.Single(f => f.FamilyID == family.FamilyID);
+        familyRow.IsActive = false;
+        await db.SaveChangesAsync();
+
+        // Chua goi ResolveAsync lan nao o tren nen cache con trong: neu ai do lo tay bo dieu
+        // kien "&& m.Family!.IsActive" khoi cau Where, test nay se that bai vi doc thang tu
+        // database chu khong phai vi doc nham cache cu.
+        Assert.Null(await ContextFor(scope, user.UserUUID).ResolveAsync(family.FamilyUUID));
+    }
+
+    [Fact]
     public async Task Khong_co_token_thi_tra_null_chu_khong_nem_loi()
     {
         using var scope = _fixture.CreateScope();

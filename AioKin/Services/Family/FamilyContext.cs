@@ -69,9 +69,6 @@ public class FamilyContext : IFamilyContext
     public Task InvalidateAsync(Guid familyUuid, Guid userUuid, CancellationToken cancellationToken = default)
         => _redis.DeleteAsync(RedisKeys.FamilyMembership(familyUuid, userUuid));
 
-    public Task InvalidateFamilyAsync(Guid familyUuid, CancellationToken cancellationToken = default)
-        => _redis.DeleteByPrefixAsync(RedisKeys.FamilyMembershipPrefix(familyUuid));
-
     /// <summary>
     /// Ban co the serialize duoc cua <see cref="FamilyMembership"/>. Record positional voi
     /// constructor bat buoc thi khong phai bo serializer nao cung dung lai duoc — mot class
