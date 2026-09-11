@@ -32,6 +32,16 @@ public static class RedisKeys
     public static string Registration(string email) => $"auth:registration:{Normalize(email)}";
 
     private static string Normalize(string email) => email.Trim().ToLowerInvariant();
+
+    // ─── Family ───────────────────────────────────────────────────────────────
+
+    /// <summary>Tu cach thanh vien da phan giai. Xoa NGAY khi doi vai tro hoac go thanh vien.</summary>
+    public static string FamilyMembership(Guid familyUuid, Guid userUuid)
+        => $"family:{familyUuid}:member:{userUuid}";
+
+    /// <summary>Tien to de xoa cache cua ca gia dinh mot lan.</summary>
+    public static string FamilyMembershipPrefix(Guid familyUuid)
+        => $"family:{familyUuid}:member:";
 }
 
 /// <summary>TTL mac dinh cho tung loai key.</summary>
@@ -42,4 +52,10 @@ public static class RedisTtl
     public static readonly TimeSpan TempPassword = TimeSpan.FromMinutes(3);
     public static readonly TimeSpan Registration = TimeSpan.FromMinutes(15);
     public static readonly TimeSpan RefreshToken = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// Ngan co chu dich. Cache nay dung de tiet kiem mot lan JOIN, khong phai de giu lau —
+    /// va no la cache cua mot quyet dinh phan quyen.
+    /// </summary>
+    public static readonly TimeSpan FamilyMembership = TimeSpan.FromMinutes(5);
 }
