@@ -16,4 +16,16 @@ public interface IFamilyService
     Task<IReadOnlyList<FamilyResponse>> GetMineAsync(
         Guid callerUserUuid,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Tao ma moi. Chi Owner va Adult goi duoc — Child thi khong.</summary>
+    Task<OperationResult> CreateInviteAsync(
+        Guid familyUuid,
+        CreateInviteRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Vao gia dinh bang ma. Vao lai nhom da o trong do la thanh cong va khong ton luot.</summary>
+    Task<OperationResult> JoinAsync(
+        Guid callerUserUuid,
+        JoinFamilyRequest request,
+        CancellationToken cancellationToken = default);
 }

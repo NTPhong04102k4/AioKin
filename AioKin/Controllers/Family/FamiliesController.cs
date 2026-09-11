@@ -61,4 +61,30 @@ public class FamiliesController : ControllerBase
 
         return this.ToActionResult(OperationResult.Ok(data: families));
     }
+
+    /// <summary>Tao ma moi vao gia dinh. Owner va Adult goi duoc.</summary>
+    [HttpPost("{uuid:guid}/invites")]
+    [ProducesResponseType<OperationResult>(StatusCodes.Status200OK)]
+    [ProducesResponseType<OperationResult>(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> CreateInvite(
+        Guid uuid,
+        [FromBody] CreateInviteRequest request,
+        CancellationToken cancellationToken)
+        => this.ToActionResult(await _familyService.CreateInviteAsync(uuid, request, cancellationToken));
+
+    /// <summary>Vao mot gia dinh bang ma moi.</summary>
+    [HttpPost("join")]
+    [ProducesResponseType<OperationResult>(StatusCodes.Status200OK)]
+    [ProducesResponseType<OperationResult>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Join(
+        [FromBody] JoinFamilyRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userUuid = User.GetUserUuid();
+        if (userUuid is null)
+            return this.ToActionResult(
+                OperationResult.Fail("Unauthorized", "Token thieu thong tin nguoi dung."));
+
+        return this.ToActionResult(await _familyService.JoinAsync(userUuid.Value, request, cancellationToken));
+    }
 }

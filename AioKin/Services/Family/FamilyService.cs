@@ -11,10 +11,12 @@ namespace AioKin.Services.Family;
 public class FamilyService : IFamilyService
 {
     private readonly AioKinDbContext _db;
+    private readonly IFamilyContext _familyContext;
 
-    public FamilyService(AioKinDbContext db)
+    public FamilyService(AioKinDbContext db, IFamilyContext familyContext)
     {
         _db = db;
+        _familyContext = familyContext;
     }
 
     public async Task<OperationResult> CreateAsync(
@@ -73,5 +75,105 @@ public class FamilyService : IFamilyService
             .ToListAsync(cancellationToken);
 
         return [.. rows.Select(r => FamilyResponse.From(r.Family, r.MemberRole, r.MemberCount))];
+    }
+
+    public async Task<OperationResult> CreateInviteAsync(
+        Guid familyUuid,
+        CreateInviteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Cong kiem tra. Moi duong cham du lieu co pham vi gia dinh bat dau bang dong nay.
+        var membership = await _familyContext.ResolveAsync(familyUuid, cancellationToken);
+        if (membership is null)
+            return OperationResult.Fail("NotAFamilyMember", "Ban khong thuoc gia dinh nay.");
+
+        if (!membership.CanInvite)
+            return OperationResult.Fail("Forbidden", "Chi chu ho hoac nguoi lon moi tao duoc ma moi.");
+
+        var invite = new FamilyInvite
+        {
+            FamilyID = membership.FamilyID,
+            Code = InviteCodeGenerator.Next(),
+            CreatedByUserID = membership.UserID,
+            ExpiresAt = DateTime.UtcNow.AddHours(request.ExpiresInHours),
+            MaxUses = request.MaxUses
+        };
+
+        _db.FamilyInvites.Add(invite);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return OperationResult.Ok("Da tao ma moi.", FamilyInviteResponse.From(invite));
+    }
+
+    public async Task<OperationResult> JoinAsync(
+        Guid callerUserUuid,
+        JoinFamilyRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var code = request.Code.Trim().ToUpperInvariant();
+
+        var userId = await _db.Users
+            .Where(u => u.UserUUID == callerUserUuid)
+            .Select(u => u.UserID)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (userId == Guid.Empty)
+            return OperationResult.Fail("UserNotFound", "Khong tim thay tai khoan.");
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+
+        var invite = await _db.FamilyInvites
+            .Include(i => i.Family)
+            .FirstOrDefaultAsync(i => i.Code == code, cancellationToken);
+
+        // Ma het han, dung het luot, bi thu hoi va ma khong ton tai deu tra ve cung mot cau
+        // tra loi. Phan biet chung nghia la noi cho nguoi do rang ma nay TUNG dung duoc —
+        // du de biet minh doan gan trung va nen doan tiep.
+        if (invite is null
+            || invite.Family is null
+            || !invite.Family.IsActive
+            || !invite.IsUsable(DateTime.UtcNow))
+        {
+            return OperationResult.Fail("NotFound", "Ma moi khong hop le hoac da het han.");
+        }
+
+        var existing = await _db.FamilyMembers
+            .FirstOrDefaultAsync(m => m.FamilyID == invite.FamilyID && m.UserID == userId, cancellationToken);
+
+        if (existing is not null)
+        {
+            // Da o trong nha roi. Bam nham lan hai la chuyen binh thuong, va no khong duoc
+            // an mot luot cua ma moi.
+            if (!existing.IsActive)
+            {
+                existing.IsActive = true;
+                existing.JoinedDate = DateTime.UtcNow;
+                await _db.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                await _familyContext.InvalidateAsync(invite.Family.FamilyUUID, callerUserUuid, cancellationToken);
+            }
+            else
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+
+            return OperationResult.Ok("Ban da o trong gia dinh nay.");
+        }
+
+        _db.FamilyMembers.Add(new FamilyMember
+        {
+            FamilyID = invite.FamilyID,
+            UserID = userId,
+            MemberRole = FamilyMemberRole.Adult
+        });
+
+        // Dem luot va tao dong thanh vien phai cung thanh cong hoac cung that bai — day la
+        // ly do ca hai nam trong mot transaction.
+        invite.UsedCount += 1;
+
+        await _db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return OperationResult.Ok("Da vao gia dinh.");
     }
 }
