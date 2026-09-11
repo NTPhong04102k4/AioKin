@@ -504,12 +504,23 @@ public class FamilySchemaTests
             UserID = user.UserID,
             MemberRole = FamilyMemberRole.Owner
         });
+        db.FamilyInvites.Add(new FamilyInvite
+        {
+            FamilyID = family.FamilyID,
+            Code = $"X{Guid.NewGuid():N}"[..10].ToUpperInvariant(),
+            CreatedByUserID = user.UserID,
+            ExpiresAt = DateTime.UtcNow.AddDays(1),
+            MaxUses = 5
+        });
         await db.SaveChangesAsync();
 
         db.Families.Remove(family);
         await db.SaveChangesAsync();
 
+        // Ca hai nua deu phai kiem tra. Chi kiem tra thanh vien thi cascade cua ma moi khong
+        // co test nao phu, va mot lan doi OnDelete thanh Restrict se di qua ma khong ai thay.
         Assert.Empty(await db.FamilyMembers.Where(m => m.FamilyID == family.FamilyID).ToListAsync());
+        Assert.Empty(await db.FamilyInvites.Where(i => i.FamilyID == family.FamilyID).ToListAsync());
     }
 }
 ```
@@ -663,6 +674,9 @@ namespace AioKin.Data.Entities.Family;
 [Table("family_invites", Schema = "family")]
 public class FamilyInvite
 {
+    /// <summary>Chuoi <c>subject</c> trong rule phan quyen.</summary>
+    public const string SubjectType = "FamilyInvite";
+
     [Key]
     public Guid FamilyInviteID { get; set; } = Guid.NewGuid();
 
@@ -775,7 +789,7 @@ Expected: PASS, all three.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add AioKin/Data AioKin.Tests/Family
+git add AioKin/Data AioKin.Tests/Infrastructure/TestData.cs AioKin.Tests/Family
 git commit -m "feat(family): them entity Family, FamilyMember, FamilyInvite
 
 Bang noi FamilyMember cho phep mot nguoi thuoc nhieu gia dinh. Bo cot
@@ -831,6 +845,7 @@ public class PermissionSeedTests
 
         Assert.Contains(Family.SubjectType, rules);
         Assert.Contains(FamilyMember.SubjectType, rules);
+        Assert.Contains(FamilyInvite.SubjectType, rules);
     }
 
     [Fact]
@@ -877,10 +892,18 @@ In `AioKin/Data/DbSeeder.cs`, in `SeedRolePermissionsAsync`, replace the `custom
               {"action":"manage","subject":"{{ScheduleItem.SubjectType}}"},
               {"action":["read","create"],"subject":"{{Family.SubjectType}}"},
               {"action":["update","delete"],"subject":"{{Family.SubjectType}}","inverted":true,"reason":"Chi chu ho moi sua duoc thong tin gia dinh."},
-              {"action":"read","subject":"{{FamilyMember.SubjectType}}"}
+              {"action":"read","subject":"{{FamilyMember.SubjectType}}"},
+              {"action":["read","create"],"subject":"{{FamilyInvite.SubjectType}}"}
             ]
             """;
 ```
+
+`FamilyInvite` is in the rule set because it has a `SubjectType`, and muc 1.1 of the spec is
+explicit that an entity with a subject but no rule makes the app forbid it silently. The
+rule is deliberately permissive: CASL here decides whether the app *draws* the button, and
+the rule set is keyed on the system role (`Customer`), which cannot see in-family role at
+all. A `Child` therefore passes this rule and is refused by `IFamilyContext` on the server
+(Task 7). That is the correct place for the refusal — see the note below.
 
 Add `using AioKin.Data.Entities.Family;` at the top of the file.
 
