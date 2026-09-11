@@ -1541,8 +1541,10 @@ public sealed class TestUser
         db.Users.Add(user);
         await db.SaveChangesAsync();
 
+        // CreateForCustomer khong nhan role: token cua khach hang luon mang role Customer,
+        // va do la dieu IJwtTokenService tu quyet dinh chu khong phai nguoi goi.
         var tokens = scope.ServiceProvider.GetRequiredService<IJwtTokenService>();
-        var accessToken = tokens.GenerateAccessToken(user, Roles.CUSTOMER);
+        var accessToken = tokens.CreateForCustomer(user);
 
         var client = fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -1552,9 +1554,10 @@ public sealed class TestUser
 }
 ```
 
-> `IJwtTokenService`'s exact method name and signature must be taken from
-> `AioKin/Services/Auth/Token/IJwtTokenService.cs`. Adjust the `GenerateAccessToken` call to
-> match it — do not change the interface to match this plan.
+> The `IJwtTokenService` call above was verified against
+> `AioKin/Services/Auth/Token/IJwtTokenService.cs`: the interface exposes
+> `CreateForCustomer(User)`, `CreateForStaff(Staff, string)` and
+> `AccessTokenLifetimeSeconds`. Never change that interface to match a test helper.
 
 Add to `ApiFixture`:
 
