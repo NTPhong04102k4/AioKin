@@ -92,11 +92,22 @@ public class FamilySchemaTests
             UserID = user.UserID,
             MemberRole = FamilyMemberRole.Owner
         });
+        db.FamilyInvites.Add(new FamilyInvite
+        {
+            FamilyID = family.FamilyID,
+            Code = $"X{Guid.NewGuid():N}"[..10].ToUpperInvariant(),
+            CreatedByUserID = user.UserID,
+            ExpiresAt = DateTime.UtcNow.AddDays(1),
+            MaxUses = 5
+        });
         await db.SaveChangesAsync();
 
         db.Families.Remove(family);
         await db.SaveChangesAsync();
 
+        // Ca hai nua deu phai kiem tra. Chi kiem tra thanh vien thi cascade cua ma moi khong
+        // co test nao phu, va mot lan doi OnDelete thanh Restrict se di qua ma khong ai thay.
         Assert.Empty(await db.FamilyMembers.Where(m => m.FamilyID == family.FamilyID).ToListAsync());
+        Assert.Empty(await db.FamilyInvites.Where(i => i.FamilyID == family.FamilyID).ToListAsync());
     }
 }

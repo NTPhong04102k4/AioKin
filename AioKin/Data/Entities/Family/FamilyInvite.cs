@@ -10,6 +10,9 @@ namespace AioKin.Data.Entities.Family;
 [Table("family_invites", Schema = "family")]
 public class FamilyInvite
 {
+    /// <summary>Chuoi <c>subject</c> trong rule phan quyen.</summary>
+    public const string SubjectType = "FamilyInvite";
+
     [Key]
     public Guid FamilyInviteID { get; set; } = Guid.NewGuid();
 
