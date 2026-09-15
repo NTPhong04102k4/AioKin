@@ -3,6 +3,7 @@ using System;
 using AioKin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace AioKin.Data.Migrations
 {
     [DbContext(typeof(AioKinDbContext))]
-    partial class AioKinDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260910055441_AddDiscoveryAndScheduleItems")]
+    partial class AddDiscoveryAndScheduleItems
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -190,150 +193,6 @@ namespace AioKin.Data.Migrations
                         .HasDatabaseName("ix_schedule_items_user_id_start_at");
 
                     b.ToTable("schedule_items", "core");
-                });
-
-            modelBuilder.Entity("AioKin.Data.Entities.Family.Family", b =>
-                {
-                    b.Property<Guid>("FamilyID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("family_id");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_date");
-
-                    b.Property<Guid>("FamilyUUID")
-                        .HasColumnType("uuid")
-                        .HasColumnName("family_uuid");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("name");
-
-                    b.Property<Guid>("OwnerUserID")
-                        .HasColumnType("uuid")
-                        .HasColumnName("owner_user_id");
-
-                    b.Property<long>("StorageQuotaBytes")
-                        .HasColumnType("bigint")
-                        .HasColumnName("storage_quota_bytes");
-
-                    b.HasKey("FamilyID")
-                        .HasName("pk_families");
-
-                    b.HasIndex("FamilyUUID")
-                        .IsUnique()
-                        .HasDatabaseName("ix_families_family_uuid");
-
-                    b.ToTable("families", "family");
-                });
-
-            modelBuilder.Entity("AioKin.Data.Entities.Family.FamilyInvite", b =>
-                {
-                    b.Property<Guid>("FamilyInviteID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("family_invite_id");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasColumnName("code");
-
-                    b.Property<Guid>("CreatedByUserID")
-                        .HasColumnType("uuid")
-                        .HasColumnName("created_by_user_id");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_date");
-
-                    b.Property<DateTime>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("expires_at");
-
-                    b.Property<Guid>("FamilyID")
-                        .HasColumnType("uuid")
-                        .HasColumnName("family_id");
-
-                    b.Property<int>("MaxUses")
-                        .HasColumnType("integer")
-                        .HasColumnName("max_uses");
-
-                    b.Property<DateTime?>("RevokedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("revoked_at");
-
-                    b.Property<int>("UsedCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("used_count");
-
-                    b.HasKey("FamilyInviteID")
-                        .HasName("pk_family_invites");
-
-                    b.HasIndex("Code")
-                        .IsUnique()
-                        .HasDatabaseName("ix_family_invites_code");
-
-                    b.HasIndex("FamilyID")
-                        .HasDatabaseName("ix_family_invites_family_id");
-
-                    b.ToTable("family_invites", "family");
-                });
-
-            modelBuilder.Entity("AioKin.Data.Entities.Family.FamilyMember", b =>
-                {
-                    b.Property<Guid>("FamilyMemberID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("family_member_id");
-
-                    b.Property<string>("DisplayName")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("display_name");
-
-                    b.Property<Guid>("FamilyID")
-                        .HasColumnType("uuid")
-                        .HasColumnName("family_id");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
-
-                    b.Property<DateTime>("JoinedDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("joined_date");
-
-                    b.Property<string>("MemberRole")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasColumnName("member_role");
-
-                    b.Property<Guid>("UserID")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("FamilyMemberID")
-                        .HasName("pk_family_members");
-
-                    b.HasIndex("UserID")
-                        .HasDatabaseName("ix_family_members_user_id");
-
-                    b.HasIndex("FamilyID", "UserID")
-                        .IsUnique()
-                        .HasDatabaseName("ix_family_members_family_id_user_id");
-
-                    b.ToTable("family_members", "family");
                 });
 
             modelBuilder.Entity("AioKin.Data.Entities.Security.Role", b =>
@@ -648,39 +507,6 @@ namespace AioKin.Data.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("AioKin.Data.Entities.Family.FamilyInvite", b =>
-                {
-                    b.HasOne("AioKin.Data.Entities.Family.Family", "Family")
-                        .WithMany()
-                        .HasForeignKey("FamilyID")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_family_invites_families_family_id");
-
-                    b.Navigation("Family");
-                });
-
-            modelBuilder.Entity("AioKin.Data.Entities.Family.FamilyMember", b =>
-                {
-                    b.HasOne("AioKin.Data.Entities.Family.Family", "Family")
-                        .WithMany("Members")
-                        .HasForeignKey("FamilyID")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_family_members_families_family_id");
-
-                    b.HasOne("AioKin.Data.Entities.Security.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserID")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_family_members_users_user_id");
-
-                    b.Navigation("Family");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("AioKin.Data.Entities.Security.Staff", b =>
                 {
                     b.HasOne("AioKin.Data.Entities.Core.Location", "Location")
@@ -700,11 +526,6 @@ namespace AioKin.Data.Migrations
                     b.Navigation("Location");
 
                     b.Navigation("Role");
-                });
-
-            modelBuilder.Entity("AioKin.Data.Entities.Family.Family", b =>
-                {
-                    b.Navigation("Members");
                 });
 
             modelBuilder.Entity("AioKin.Data.Entities.Security.Role", b =>

@@ -163,9 +163,65 @@ git push
 |---|---|
 | `scripts/git-sync.sh` (hoac `.ps1`) | Fetch roi rebase nhanh hien tai len `origin/main`, kem kiem tra an toan. |
 | `scripts/git-land.sh` (hoac `.ps1`) | Sau khi PR da merge: ve `main`, pull, xoa nhanh da xong o ca local lan remote. |
+| `scripts/gh-aliases.sh` (hoac `.ps1`) | Cai bo `gh` alias goi hai script tren va cac lenh PR/CI hay dung — xem [muc 6.1](#61-gh-alias). |
 
-Ca hai deu tu choi chay khi working tree con thay doi chua commit, va khi dang dung tren
-chinh `main` — hai truong hop de mat viec nhat.
+`git-sync` va `git-land` deu tu choi chay khi working tree con thay doi chua commit, va khi
+dang dung tren chinh `main` — hai truong hop de mat viec nhat.
+
+### 6.1 gh alias
+
+`scripts/gh-aliases.sh` cai mot bo alias cho `gh` bao dung toan bo vong doi o [muc 4](#4-vong-doi-mot-thay-doi):
+
+```bash
+scripts/gh-aliases.sh            # cai / cap nhat
+scripts/gh-aliases.sh --list     # xem cai gi dang duoc cai
+scripts/gh-aliases.sh --remove   # go het
+```
+
+```powershell
+.\scripts\gh-aliases.ps1
+.\scripts\gh-aliases.ps1 -List
+.\scripts\gh-aliases.ps1 -Remove
+```
+
+Ban than cac alias goi shell van can `sh` trong PATH — `gh` chay shell alias qua no. Tren
+Windows thi Git for Windows da kem san, khong phai cai them gi.
+
+| Lenh | Viec | Buoc o muc 4 |
+|---|---|---|
+| `gh aiokin-new <type>/<ten>` | Ve `main`, pull, tach nhanh moi | 1–2 |
+| `gh aiokin-check` | `dotnet build AioKin.sln -c Release` | 7 |
+| `gh aiokin-sync` | Rebase nhanh hien tai len `origin/main` | 4 |
+| `gh aiokin-pr-new` | Day nhanh len roi `gh pr create --fill --base main` | 5 |
+| `gh aiokin-pr-checks` | Theo doi CI cua PR cho toi khi co ket qua | 5 |
+| `gh aiokin-pr-web` | Mo PR cua nhanh hien tai tren trinh duyet | 5 |
+| `gh aiokin-land` | Sau khi merge: ve `main`, pull, xoa nhanh | 6 |
+| `gh aiokin-prs` · `gh aiokin-mine` | Liet ke PR cua repo / cua rieng minh | — |
+| `gh aiokin-ci` · `gh aiokin-ci-fail` | Cac lan chay CI gan day / chi lan that bai | — |
+| `gh aiokin-ci-log` | Log phan **that bai** cua lan chay CI moi nhat | — |
+
+Mot vong lam viec day du chi con:
+
+```bash
+gh aiokin-new feat/facebook-sso
+# ... lam viec, commit ...
+gh aiokin-check
+gh aiokin-sync
+gh aiokin-pr-new
+gh aiokin-pr-checks
+# ... duoc duyet, Squash and merge tren GitHub ...
+gh aiokin-land
+```
+
+Hai dieu can biet ve `gh alias`:
+
+- **No la cau hinh cua may, khong phai cua repo.** Alias nam trong `~/.config/gh/config.yml`
+  va co mat o moi repo ban mo. Vi vay moi alias o day deu mang tien to `aiokin-` va deu ghi
+  ro `--repo NTPhong04102k4/AioKin`, de khong bao gio lo hanh dong nham sang repo khac.
+- **File script la nguon su that, khong phai config cua may.** Them alias thi sua
+  `scripts/gh-aliases.sh` roi chay lai (`gh alias set --clobber` nen chay lai la cap nhat),
+  dung `gh alias set` bang tay — nhu the may thu hai cua ban va nguoi moi vao du an co cung
+  bo lenh.
 
 ## 7. Truoc khi mo PR
 

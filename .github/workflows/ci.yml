@@ -65,16 +65,13 @@ jobs:
       - name: Build (Release)
         run: dotnet build AioKin.sln -c Release --no-restore
 
-      # Chua co project test nao; buoc nay tu bo qua va se chay that khi them vao.
       - name: Test (Release)
-        run: |
-          if ls **/*Tests*.csproj >/dev/null 2>&1; then
-            dotnet test AioKin.sln -c Release --no-build \
-              --results-directory ./artifacts/test-results \
-              --logger "trx;LogFileName=test-results.trx"
-          else
-            echo "Chua co project test — bo qua."
-          fi
+        run: dotnet test AioKin.sln -c Release --no-build --verbosity normal
+        env:
+          TEST_PG_HOST: localhost
+          TEST_PG_PORT: "5432"
+          TEST_PG_USER: postgres
+          TEST_PG_PASSWORD: postgres
 
       - name: Upload test results
         if: always()

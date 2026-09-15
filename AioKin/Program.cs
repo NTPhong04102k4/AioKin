@@ -13,11 +13,14 @@ using AioKin.Services.Auth.Email;
 using AioKin.Services.Auth.OAuth;
 using AioKin.Services.Auth.Otp;
 using AioKin.Services.Auth.PasswordUser;
+using AioKin.Services.Auth.Permissions;
 using AioKin.Services.Auth.RefreshToken;
 using AioKin.Services.Auth.StaffManagement;
 using AioKin.Services.Auth.Token;
 using AioKin.Services.Auth.User;
 using AioKin.Services.Common.Cache;
+using AioKin.Services.Content;
+using AioKin.Services.Family;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -54,6 +57,10 @@ var config = builder.Configuration;
 // dang ky kieu nay thi ValidateOnBuild (bat san o Development) bat duoc ngay luc khoi dong.
 builder.Services.AddControllers().AddControllersAsServices();
 builder.Services.AddHttpClient();
+
+// FamilyContext doc danh tinh nguoi goi tu HttpContext. Khong dang ky dong nay thi container
+// nem loi luc khoi dong (ValidateOnBuild), khong phai luc co request that.
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
 
 // Loi validation tra ve cung khuon OperationResult nhu moi phan hoi loi khac, thay vi
@@ -223,6 +230,17 @@ builder.Services.AddScoped<ISuperAdminGuardService, SuperAdminGuardService>();
 builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
 builder.Services.AddScoped<IStaffManagementService, StaffManagementService>();
 builder.Services.AddScoped<IOAuthService, OAuthService>();
+builder.Services.AddScoped<IPermissionService, PermissionService>();
+
+// ─── Service tang Content ─────────────────────────────────────────────────────
+//
+// Chi doc, va deu cham AioKinDbContext — Scoped de dung mot DbContext voi phan con lai
+// cua request thay vi mo them ket noi rieng.
+
+builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
+builder.Services.AddScoped<IScheduleService, ScheduleService>();
+builder.Services.AddScoped<IFamilyContext, FamilyContext>();
+builder.Services.AddScoped<IFamilyService, FamilyService>();
 
 // ─── Xac thuc ─────────────────────────────────────────────────────────────────
 
@@ -494,3 +512,10 @@ static async Task InitializeDatabaseAsync(WebApplication app)
         throw;
     }
 }
+
+/// <summary>
+/// Top-level statement sinh ra class Program voi pham vi internal, ma
+/// WebApplicationFactory&lt;Program&gt; thi can no public. Khai bao partial nay chi de mo
+/// pham vi — khong them thanh vien nao.
+/// </summary>
+public partial class Program { }

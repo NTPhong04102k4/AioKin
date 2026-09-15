@@ -409,3 +409,12 @@ appsettings.*.local.json
 
 # Artifact cua CI/CD
 artifacts/
+
+.claude
+.gitnexus
+.superpowers
+
+# Cau hinh skillrunner cuc bo (chua duong dan tuyet doi rieng cua may dev)
+.mcp.json
+skill.json
+.skillrunner/

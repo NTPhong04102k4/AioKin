@@ -32,6 +32,7 @@ public static class OperationResultHttpExtensions
         // 403 Forbidden
         "Forbidden" => StatusCodes.Status403Forbidden,
         "AccessDenied" => StatusCodes.Status403Forbidden,
+        "NotAFamilyMember" => StatusCodes.Status403Forbidden,
 
         // 404 Not Found
         "NotFound" => StatusCodes.Status404NotFound,
