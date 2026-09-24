@@ -363,7 +363,25 @@ var app = builder.Build();
 
 // ─── Khoi tao database ────────────────────────────────────────────────────────
 
-await InitializeDatabaseAsync(app);
+// Dev: tu migrate/seed cho tien, khong ai khac dung chung DB. Ngoai Dev (staging/prod):
+// chi chay khi RUN_MIGRATIONS=true duoc set tuong minh luc deploy — tranh nhieu instance
+// cung migrate mot luc va tranh mot lan migrate loi keo sap ca app dang chay on dinh.
+// Quy trinh chuan: chay `dotnet ef database update` (hoac set RUN_MIGRATIONS=true mot lan)
+// nhu mot buoc rieng TRUOC khi deploy, tach khoi vong doi khoi dong app.
+var shouldMigrateOnStartup = app.Environment.IsDevelopment()
+    || string.Equals(config["RUN_MIGRATIONS"], "true", StringComparison.OrdinalIgnoreCase);
+
+if (shouldMigrateOnStartup)
+{
+    await InitializeDatabaseAsync(app);
+}
+else
+{
+    app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup").LogInformation(
+        "Bo qua migrate/seed luc khoi dong ({Environment}, RUN_MIGRATIONS khong phai 'true'). "
+        + "Chay migration nhu buoc rieng truoc khi deploy: dotnet ef database update.",
+        app.Environment.EnvironmentName);
+}
 
 // ─── Pipeline ─────────────────────────────────────────────────────────────────
 
