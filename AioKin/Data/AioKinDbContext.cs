@@ -24,6 +24,11 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
     public DbSet<DeviceCredential> DeviceCredentials => Set<DeviceCredential>();
     public DbSet<Space> Spaces => Set<Space>();
     public DbSet<SpaceMember> SpaceMembers => Set<SpaceMember>();
+    public DbSet<Category> Categories => Set<Category>();
+    public DbSet<Tag> Tags => Set<Tag>();
+    public DbSet<Prompt> Prompts => Set<Prompt>();
+    public DbSet<PromptVariable> PromptVariables => Set<PromptVariable>();
+    public DbSet<PromptTag> PromptTags => Set<PromptTag>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -203,6 +208,54 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
                 .WithMany()
                 .HasForeignKey(m => m.UserID)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Category>(entity =>
+        {
+            entity.HasIndex(c => c.SpaceID);
+            entity.HasIndex(c => new { c.SpaceID, c.Name }).IsUnique();
+            entity.HasOne(c => c.Space).WithMany().HasForeignKey(c => c.SpaceID).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Tag>(entity =>
+        {
+            entity.HasIndex(t => t.SpaceID);
+            entity.HasIndex(t => new { t.SpaceID, t.Name }).IsUnique();
+            entity.HasOne(t => t.Space).WithMany().HasForeignKey(t => t.SpaceID).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Prompt>(entity =>
+        {
+            entity.HasIndex(p => p.SpaceID);
+            entity.HasIndex(p => p.CategoryID);
+            entity.HasIndex(p => new { p.SpaceID, p.IsFavorite }).HasFilter("is_deleted = false");
+            entity.HasIndex(p => new { p.SpaceID, p.UpdatedDate }).HasFilter("is_deleted = false");
+            // FTS: y het thiet ke trong db/init-postgres.sql, sinh bang raw SQL trong migration
+            // (Task 5 Step 6) vi HasGeneratedTsVectorColumn khong khop cach dung to_tsvector
+            // truc tiep tren 2 cot ma khong luu them cot moi.
+
+            entity.HasOne(p => p.Space).WithMany().HasForeignKey(p => p.SpaceID).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(p => p.Category).WithMany().HasForeignKey(p => p.CategoryID).OnDelete(DeleteBehavior.SetNull);
+
+            // Ruling (Low, decision, confirmed correct trong progress.md): Restrict la co y —
+            // xoa mot user con prompt do ho tao ra phai that bai ro rang, khong am tham
+            // mo con/xoa lan noi dung dang chia se trong mot space.
+            entity.HasOne(p => p.Author).WithMany().HasForeignKey(p => p.AuthorUserID).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PromptVariable>(entity =>
+        {
+            entity.HasIndex(v => v.PromptID);
+            entity.HasIndex(v => new { v.PromptID, v.VarKey }).IsUnique();
+            entity.HasOne(v => v.Prompt).WithMany(p => p.Variables).HasForeignKey(v => v.PromptID).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PromptTag>(entity =>
+        {
+            entity.HasKey(pt => new { pt.PromptID, pt.TagID });
+            entity.HasOne(pt => pt.Prompt).WithMany(p => p.PromptTags).HasForeignKey(pt => pt.PromptID).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(pt => pt.Tag).WithMany().HasForeignKey(pt => pt.TagID).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(pt => pt.TagID);
         });
     }
 }

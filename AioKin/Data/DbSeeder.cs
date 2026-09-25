@@ -85,6 +85,12 @@ public static class DbSeeder
         // ScheduleItem khong kem dieu kien "cua chinh minh": endpoint /todos da gioi han
         // theo token roi, va DTO ben app khong phat userId ra nen mot dieu kien
         // {"userId": ...} se khong bao gio so khop duoc.
+        // 4 dong cuoi (Space/Prompt/Category/Tag) dung "manage" rong hon cach Family lam
+        // ("read"/"create" rieng le): pham vi truy cap thuc su da bi gioi han o tang service
+        // boi ISpaceContext (thanh vien space + CanManage/author check), giong cach
+        // FamilyMember.SubjectType chi can rule "read" don gian vi IFamilyContext moi la
+        // cong gac that su. CASL o day chi xac nhan role Customer duoc dung toi cac loai
+        // subject nay.
         const string customerRules = $$"""
             [
               {"action":"read","subject":"{{DiscoveryItem.SubjectType}}"},
@@ -93,7 +99,11 @@ public static class DbSeeder
               {"action":["read","create"],"subject":"{{Family.SubjectType}}"},
               {"action":["update","delete"],"subject":"{{Family.SubjectType}}","inverted":true,"reason":"Chi chu ho moi sua duoc thong tin gia dinh."},
               {"action":"read","subject":"{{FamilyMember.SubjectType}}"},
-              {"action":["read","create"],"subject":"{{FamilyInvite.SubjectType}}"}
+              {"action":["read","create"],"subject":"{{FamilyInvite.SubjectType}}"},
+              {"action":"manage","subject":"{{Space.SubjectType}}"},
+              {"action":"manage","subject":"{{Prompt.SubjectType}}"},
+              {"action":"manage","subject":"{{Category.SubjectType}}"},
+              {"action":"manage","subject":"{{Tag.SubjectType}}"}
             ]
             """;
 
