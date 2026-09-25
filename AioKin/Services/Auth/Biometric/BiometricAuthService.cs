@@ -178,6 +178,16 @@ public class BiometricAuthService : IBiometricAuthService
         RevokeCredential(credential);
         await _db.SaveChangesAsync();
 
+        // Fix round 1 (SECURITY): revoke credential thoi la chua du — neu thiet bi (vd dien
+        // thoai bi mat cap) van con mot access/refresh token con song tu truoc, ke dang giu
+        // no van qua duoc P6 (deviceId khop phien) va dang ky lai duoc key cua chinh minh, phuc
+        // hoi dang nhap sinh trac "vinh vien" ngay sau khi chu that su vua tat no di. Dung lai
+        // cung primitive VerifyAsync da dung o P10 — thu hoi ca access session lan refresh
+        // token con song cua DUNG thiet bi nay, de "revoke" nghia la khoa han thiet bi do, khong
+        // chi la tat loi tat sinh trac.
+        await _accessTokenService.RevokeForDeviceAsync(user.UserCode, deviceId);
+        await _refreshTokenService.RevokeAllForDeviceAsync(user.UserCode, deviceId);
+
         _logger.LogInformation("Biometric credential revoked for userCode={UserCode}, deviceId={DeviceId}", user.UserCode, deviceId);
         return OperationResult.Ok("Da tat dang nhap sinh trac cho thiet bi nay.");
     }

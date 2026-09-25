@@ -13,6 +13,7 @@ public class MemoryCacheRedisService : IRedisService
     private readonly IMemoryCache _cache;
     private readonly ILogger<MemoryCacheRedisService> _logger;
     private readonly Lock _nxLock = new();
+    private readonly Lock _deleteLock = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -82,12 +83,23 @@ public class MemoryCacheRedisService : IRedisService
     /// UpstashRedisRestService — khong duoc luon tra true. BiometricAuthService.VerifyAsync
     /// dung gia tri nay de dam bao challenge chi duoc tieu thu boi DUNG MOT request khi hai
     /// request verify chay song song tren cung mot challengeId.
+    ///
+    /// Fix round 1: TryGetValue + Remove phai la MOT khoi nguyen tu, khong phai hai buoc roi
+    /// rac — neu khong, hai DeleteAsync goi song song tren cung mot key co the ca hai cung
+    /// thay existed=true TRUOC khi ben nao Remove, ca hai cung tra ve true (dung lai dieu ma
+    /// fix ban dau dinh chan). IMemoryCache.Remove khong tra ve gia tri "co xoa duoc khong",
+    /// nen phai tu gate bang lock — cung kieu voi SetIfNotExistsAsync o tren.
     /// </summary>
     public Task<bool> DeleteAsync(string key)
     {
-        var existed = _cache.TryGetValue(key, out _);
-        _cache.Remove(key);
-        return Task.FromResult(existed);
+        lock (_deleteLock)
+        {
+            var existed = _cache.TryGetValue(key, out _);
+            if (existed)
+                _cache.Remove(key);
+
+            return Task.FromResult(existed);
+        }
     }
 
     public Task<long> DeleteByPrefixAsync(string keyPrefix)
