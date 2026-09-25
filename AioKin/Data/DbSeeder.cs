@@ -4,6 +4,7 @@ using AioKin.Data.Entities.Family;
 using AioKin.Data.Entities.Security;
 using AioKin.Data.Entities.Vault;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace AioKin.Data;
@@ -122,7 +123,7 @@ public static class DbSeeder
 
             // Da co rule: chi bo sung cap SUBJECT+ACTION con thieu so voi "wanted", khong
             // dung lai neu khong thieu gi ca (giu nguyen van chuoi da co, kho khong doc lai).
-            if (AppendMissingRules(role, rules))
+            if (AppendMissingRules(role, rules, logger))
                 updated.Add(role.RoleName);
         }
 
@@ -139,31 +140,49 @@ public static class DbSeeder
     /// nao chua co chu ky trung thi duoc DeepClone va APPEND vao cuoi mang JSON hien co.
     /// Tra ve false (khong dung SaveChanges) neu khong co gi thieu, de tranh ghi lai
     /// Permissions bang mot chuoi JSON reserialize khac byte voi ban goc khi khong can thiet.
+    ///
+    /// Rule CASL hop le nhung ngoai du doan cua RuleSignature (vi du "subject" la MANG
+    /// thay vi 1 chuoi — CASL cho phep dieu nay; hoac Permissions khong con la JSON hop le
+    /// nua vi ly do gi do) se lam JsonNode.Parse/AsArray/GetValue nem loi. Ban CU chi seed
+    /// khi rong nen chua bao gio gap truong hop nay; ban MOI nay chu dong doc lai rule da
+    /// co nen PHAI chiu duoc hinh dang la — bat loi, ghi Warning, va bo qua BO SUNG cho
+    /// dung role do (giu nguyen Permissions cu) thay vi lam SeedAsync nem loi va keo sap
+    /// ca ung dung luc khoi dong.
     /// </summary>
-    private static bool AppendMissingRules(Role role, string wantedRulesJson)
+    private static bool AppendMissingRules(Role role, string wantedRulesJson, ILogger logger)
     {
-        var existingArray = JsonNode.Parse(role.Permissions!)?.AsArray();
-        var wantedArray = JsonNode.Parse(wantedRulesJson)?.AsArray();
-        if (existingArray is null || wantedArray is null)
+        try
+        {
+            var existingArray = JsonNode.Parse(role.Permissions!)?.AsArray();
+            var wantedArray = JsonNode.Parse(wantedRulesJson)?.AsArray();
+            if (existingArray is null || wantedArray is null)
+                return false;
+
+            var existingSignatures = existingArray
+                .Where(n => n is not null)
+                .Select(n => RuleSignature(n!))
+                .ToHashSet(StringComparer.Ordinal);
+
+            var missing = wantedArray
+                .Where(n => n is not null && !existingSignatures.Contains(RuleSignature(n!)))
+                .ToList();
+
+            if (missing.Count == 0)
+                return false;
+
+            foreach (var rule in missing)
+                existingArray.Add(rule!.DeepClone());
+
+            role.Permissions = existingArray.ToJsonString();
+            return true;
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            logger.LogWarning(ex,
+                "Bo qua bo sung permission cho role {RoleName}: rule hien co (hoac rule wanted) co hinh dang CASL ngoai du doan cua bo so sanh (vi du subject dang mang).",
+                role.RoleName);
             return false;
-
-        var existingSignatures = existingArray
-            .Where(n => n is not null)
-            .Select(n => RuleSignature(n!))
-            .ToHashSet(StringComparer.Ordinal);
-
-        var missing = wantedArray
-            .Where(n => n is not null && !existingSignatures.Contains(RuleSignature(n!)))
-            .ToList();
-
-        if (missing.Count == 0)
-            return false;
-
-        foreach (var rule in missing)
-            existingArray.Add(rule!.DeepClone());
-
-        role.Permissions = existingArray.ToJsonString();
-        return true;
+        }
     }
 
     /// <summary>Chu ky nhan dang 1 rule CASL: subject + co inverted khong + tap action da sap xep.</summary>
