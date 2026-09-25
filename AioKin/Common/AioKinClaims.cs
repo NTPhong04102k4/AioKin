@@ -3,11 +3,10 @@ using System.Security.Claims;
 namespace AioKin.Common;
 
 /// <summary>
-/// Claim rieng cua he thong. Dung ten tuy chinh thay vi cac claim JWT chuan vi
-/// <c>JwtSecurityTokenHandler</c> anh xa <c>name</c> va <c>unique_name</c> ve cung
-/// <see cref="ClaimTypes.Name"/> — doc <c>ClaimTypes.Name</c> se ra ho ten hay username
-/// tuy thu tu claim, mot nham lan im lang. Cac ten duoi day khong nam trong bang anh xa
-/// mac dinh nen luon doc ra dung thu da ghi vao.
+/// Claim rieng cua he thong, do OpaqueAccessTokenAuthenticationHandler gan thu cong vao
+/// ClaimsIdentity (khong con JwtSecurityTokenHandler anh xa claim tu dong nhu truoc).
+/// Dung ten tuy chinh thay vi doc thang username/ho ten qua <see cref="ClaimTypes.Name"/>
+/// de tranh nham lan giua hai gia tri do — cac ten duoi day luon doc ra dung thu da ghi vao.
 /// </summary>
 public static class AioKinClaims
 {
@@ -21,7 +20,8 @@ public static class AioKinClaims
     public const string StaffId = "staff_id";
 
     /// <summary>Access token goc (khong phai jti) — cho phep Logout revoke dung session nay
-    /// ma khong phai parse lai header Authorization.</summary>
+    /// ma khong phai parse lai header Authorization.
+    /// Khong log claim nay (chua token that).</summary>
     public const string SessionToken = "session_token";
 }
 
@@ -36,7 +36,8 @@ public static class ClaimsPrincipalExtensions
     public static string? GetRole(this ClaimsPrincipal principal)
         => principal.FindFirstValue(ClaimTypes.Role);
 
-    /// <summary>UserUUID cua khach hang, doc tu claim <c>sub</c>. Null neu token la cua Staff.</summary>
+    /// <summary>UserUUID cua khach hang, doc tu <see cref="ClaimTypes.NameIdentifier"/> (do
+    /// OpaqueAccessTokenAuthenticationHandler gan). Null neu token la cua Staff.</summary>
     public static Guid? GetUserUuid(this ClaimsPrincipal principal)
         => Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : null;
 

@@ -469,7 +469,7 @@ public class AuthController : ControllerBase
         return Challenge(props, GoogleDefaults.AuthenticationScheme);
     }
 
-    /// <summary>Buoc cuoi cua luong Google: doc cookie tam, cap JWT, gui ve popup.</summary>
+    /// <summary>Buoc cuoi cua luong Google: doc cookie tam, cap access token, gui ve popup.</summary>
     [HttpGet("finalize/google")]
     [AllowAnonymous]
     public async Task<IActionResult> GoogleFinalize()
@@ -499,7 +499,7 @@ public class AuthController : ControllerBase
         return Challenge(props, FacebookDefaults.AuthenticationScheme);
     }
 
-    /// <summary>Buoc cuoi cua luong Facebook: doc cookie tam, cap JWT, gui ve popup.</summary>
+    /// <summary>Buoc cuoi cua luong Facebook: doc cookie tam, cap access token, gui ve popup.</summary>
     [HttpGet("finalize/facebook")]
     [AllowAnonymous]
     public async Task<IActionResult> FacebookFinalize()

@@ -104,7 +104,6 @@ builder.Services.AddSwaggerGen(options =>
         Name = "Authorization",
         Type = SecuritySchemeType.Http,
         Scheme = "bearer",
-        BearerFormat = "JWT",
         In = ParameterLocation.Header,
         Description = "Dan access token vao day; khong can tu go tien to Bearer."
     });
@@ -243,7 +242,7 @@ authentication.AddScheme<AuthenticationSchemeOptions, OpaqueAccessTokenAuthentic
     OpaqueAccessTokenAuthenticationHandler.SchemeName, _ => { });
 
 // Cookie tam giu danh tinh giua luc nha cung cap redirect ve va luc OAuthService doc ho so.
-// No song vai giay, khong phai phien dang nhap — phien that la JWT cap sau do.
+// No song vai giay, khong phai phien dang nhap — phien that la access token opaque cap sau do.
 authentication.AddCookie(ExternalAuthScheme, options =>
 {
     options.Cookie.Name = "aiokin.external";
@@ -366,7 +365,7 @@ app.UseCors(CorsPolicy);
 
 // Sau UseCors de phan hoi 429 van mang header CORS — thieu no thi trinh duyet bao loi
 // CORS thay vi hien dung "ban thao tac qua nhanh". Truoc UseAuthentication de tu choi
-// som, khoi ton cong giai ma JWT cho request se bi chan.
+// som, khoi ton cong tra cuu Redis cho request se bi chan.
 app.UseRateLimiter();
 
 // UseAuthentication truoc UseAuthorization — thu tu bat buoc cua ASP.NET Core.

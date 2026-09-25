@@ -1,6 +1,6 @@
 namespace AioKin.Common;
 
-/// <summary>Ten role dung xuyen suot JWT claim, [Authorize(Roles = ...)] va bang Security.Roles.</summary>
+/// <summary>Ten role dung xuyen suot claim cua access token, [Authorize(Roles = ...)] va bang Security.Roles.</summary>
 public static class Roles
 {
     public const string SUPERADMIN = "SuperAdmin";
