@@ -133,7 +133,7 @@ public class AuthController : ControllerBase
         return Ok(new TokenResponse
         {
             AccessToken = await _accessTokenService.CreateForCustomerAsync(user),
-            RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER),
+            RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER, deviceId: null),
             ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             TokenType = "Bearer",
             Scope = Roles.CUSTOMER
@@ -226,7 +226,7 @@ public class AuthController : ControllerBase
         await _redis.DeleteAsync(RedisKeys.Registration(model.Email));
 
         var accessToken = await _accessTokenService.CreateForCustomerAsync(createdUser);
-        var refreshToken = await _refreshTokenService.GenerateAsync(createdUser.UserCode, Roles.CUSTOMER);
+        var refreshToken = await _refreshTokenService.GenerateAsync(createdUser.UserCode, Roles.CUSTOMER, deviceId: null);
 
         // Email chao mung khong duoc lam hong dang ky — gui that bai thi chi ghi log.
         if (createdUser.Email is not null)
@@ -384,7 +384,7 @@ public class AuthController : ControllerBase
             return this.ToActionResult(OperationResult.Fail("InvalidRefreshToken",
                 "Refresh token khong hop le hoac da het han. Vui long dang nhap lai."));
 
-        var (subject, role) = payload.Value;
+        var (subject, role, deviceId) = payload;
 
         // Thu hoi truoc khi cap token moi: neu cap truoc roi moi thu hoi va co su co o
         // giua, ca hai token deu con song.
@@ -417,7 +417,7 @@ public class AuthController : ControllerBase
         return Ok(new TokenResponse
         {
             AccessToken = accessToken,
-            RefreshToken = await _refreshTokenService.GenerateAsync(subject, role),
+            RefreshToken = await _refreshTokenService.GenerateAsync(subject, role, deviceId: null),
             ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             TokenType = "Bearer",
             Scope = role

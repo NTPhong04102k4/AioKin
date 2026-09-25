@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.Text;
 using AioKin.Common;
 using AioKin.Services.Common.Cache;
 using StaffDb = AioKin.Data.Entities.Security.Staff;
@@ -63,7 +62,7 @@ public class AccessTokenService : IAccessTokenService
             .Replace('/', '_')
             .TrimEnd('=');
 
-        var hash = HashToken(token);
+        var hash = TokenHash.Sha256Hex(token);
         var ttl = TimeSpan.FromSeconds(AccessTokenLifetimeSeconds);
 
         var saved = await _redis.SetAsync(RedisKeys.AccessSession(hash), session, ttl);
@@ -104,11 +103,11 @@ public class AccessTokenService : IAccessTokenService
     }
 
     public Task<AccessTokenSession?> ValidateAsync(string token)
-        => _redis.GetAsync<AccessTokenSession>(RedisKeys.AccessSession(HashToken(token)));
+        => _redis.GetAsync<AccessTokenSession>(RedisKeys.AccessSession(TokenHash.Sha256Hex(token)));
 
     public async Task RevokeAsync(string token)
     {
-        var deleted = await _redis.DeleteAsync(RedisKeys.AccessSession(HashToken(token)));
+        var deleted = await _redis.DeleteAsync(RedisKeys.AccessSession(TokenHash.Sha256Hex(token)));
         if (!deleted)
             _logger.LogWarning("Access session key not found on revoke (already expired or revoked)");
 
@@ -129,11 +128,4 @@ public class AccessTokenService : IAccessTokenService
         await _redis.DeleteAsync(key);
         _logger.LogInformation("All access sessions revoked for subject={Subject}", subject);
     }
-
-    /// <summary>
-    /// Token that khong bao gio nam trong Redis lam key: mot ban dump/backup Redis khong
-    /// duoc de lo session dang song duoi dang dung duoc luon.
-    /// </summary>
-    private static string HashToken(string token)
-        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
 }

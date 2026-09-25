@@ -8,8 +8,8 @@ public static class RedisKeys
 {
     // ─── Auth ─────────────────────────────────────────────────────────────────
 
-    /// <summary>Refresh token → {userCode}|{role}.</summary>
-    public static string RefreshToken(string token) => $"auth:refresh:{token}";
+    /// <summary>Refresh token (sau khi bam sha256) → RefreshTokenPayload JSON.</summary>
+    public static string RefreshToken(string tokenHash) => $"auth:refresh:{tokenHash}";
 
     /// <summary>Tap hop refresh token cua mot user — dung de revoke tat ca.</summary>
     public static string UserRefreshTokens(string userCode) => $"auth:user_tokens:{userCode}";

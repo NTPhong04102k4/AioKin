@@ -211,7 +211,7 @@ public class OAuthService : IOAuthService
     {
         Success = true,
         Token = await _accessTokenService.CreateForCustomerAsync(user),
-        RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER),
+        RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER, deviceId: null),
         ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
         UserData = UserMapper.ToLoginResponse(user)
     };

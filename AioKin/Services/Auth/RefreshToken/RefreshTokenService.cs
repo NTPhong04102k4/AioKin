@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using AioKin.Common;
 using AioKin.Services.Common.Cache;
 
@@ -31,74 +30,93 @@ public class RefreshTokenService : IRefreshTokenService
         return TimeSpan.FromDays(days);
     }
 
-    public async Task<string> GenerateAsync(string userCode, string role)
+    public async Task<string> GenerateAsync(string subject, string role, string? deviceId)
     {
         // 64 byte ngau nhien, base64url khong padding — an toan khi dat trong URL/header.
-        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64))
+        var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(64))
             .Replace('+', '-')
             .Replace('/', '_')
             .TrimEnd('=');
 
+        var hash = TokenHash.Sha256Hex(token);
         var ttl = ResolveTtl();
-        await _redis.SetStringAsync(RedisKeys.RefreshToken(token), $"{userCode}|{role}", ttl);
 
-        // Giu danh sach token cua user de RevokeAll co gi ma duyet. Luu dang chuoi ngan
-        // cach bang xuong dong de dung duoc tren ca Redis TCP lan REST.
-        var userTokensKey = RedisKeys.UserRefreshTokens(userCode);
-        var existing = await _redis.GetStringAsync(userTokensKey) ?? string.Empty;
-        var tokens = existing.Split(TokenSeparator, StringSplitOptions.RemoveEmptyEntries).ToList();
-        tokens.Add(token);
-
-        if (tokens.Count > MaxTokensPerUser)
+        var saved = await _redis.SetAsync(RedisKeys.RefreshToken(hash), new RefreshTokenPayload(subject, role, deviceId), ttl);
+        if (!saved)
         {
-            // Token bi day ra khoi danh sach cung phai bi thu hoi, neu khong no van dung
-            // duoc cho toi khi het TTL ma khong con cach nao revoke.
-            foreach (var evicted in tokens[..^MaxTokensPerUser])
-                await _redis.DeleteAsync(RedisKeys.RefreshToken(evicted));
-
-            tokens = tokens[^MaxTokensPerUser..];
+            // Cung pattern voi AccessTokenService.IssueAsync: khong duoc tra ve token
+            // "thanh cong" ma phia sau khong con session nao trong Redis — token do se
+            // that bai ngay khi dung, gay nham lan hon la bao loi luon tai day.
+            _logger.LogError("Failed to persist refresh token to Redis for subject={Subject}, device={DeviceId}",
+                subject, deviceId ?? "unknown");
+            throw new InvalidOperationException("Khong tao duoc refresh token. Vui long thu lai.");
         }
 
-        await _redis.SetStringAsync(userTokensKey, string.Join(TokenSeparator, tokens), ttl);
+        await TrackTokenAsync(subject, hash, ttl);
 
-        _logger.LogInformation("Refresh token generated for user={UserCode}", userCode);
+        _logger.LogInformation("Refresh token generated for subject={Subject}, device={DeviceId}", subject, deviceId ?? "unknown");
         return token;
     }
 
-    public async Task<(string UserCode, string Role)?> ValidateAsync(string token)
+    private async Task TrackTokenAsync(string subject, string hash, TimeSpan ttl)
     {
-        var payload = await _redis.GetStringAsync(RedisKeys.RefreshToken(token));
-        if (string.IsNullOrEmpty(payload))
+        // Giu danh sach hash cua subject de RevokeAll co gi ma duyet. Luu dang chuoi ngan
+        // cach bang xuong dong de dung duoc tren ca Redis TCP lan REST.
+        var userTokensKey = RedisKeys.UserRefreshTokens(subject);
+        var existing = await _redis.GetStringAsync(userTokensKey) ?? string.Empty;
+        var hashes = existing.Split(TokenSeparator, StringSplitOptions.RemoveEmptyEntries).ToList();
+        hashes.Add(hash);
+
+        if (hashes.Count > MaxTokensPerUser)
         {
-            _logger.LogWarning("Refresh token not found or expired");
-            return null;
+            // Token bi day ra khoi danh sach cung phai bi thu hoi, neu khong no van dung
+            // duoc cho toi khi het TTL ma khong con cach nao revoke.
+            foreach (var evicted in hashes[..^MaxTokensPerUser])
+                await _redis.DeleteAsync(RedisKeys.RefreshToken(evicted));
+
+            hashes = hashes[^MaxTokensPerUser..];
         }
 
-        var parts = payload.Split('|');
-        if (parts.Length != 2)
-        {
-            _logger.LogWarning("Refresh token payload malformed");
-            return null;
-        }
-
-        return (parts[0], parts[1]);
+        await _redis.SetStringAsync(userTokensKey, string.Join(TokenSeparator, hashes), ttl);
     }
+
+    public Task<RefreshTokenPayload?> ValidateAsync(string token)
+        => _redis.GetAsync<RefreshTokenPayload>(RedisKeys.RefreshToken(TokenHash.Sha256Hex(token)));
 
     public async Task RevokeAsync(string token)
     {
-        await _redis.DeleteAsync(RedisKeys.RefreshToken(token));
+        await _redis.DeleteAsync(RedisKeys.RefreshToken(TokenHash.Sha256Hex(token)));
         _logger.LogInformation("Refresh token revoked");
     }
 
-    public async Task RevokeAllAsync(string userCode)
+    public async Task RevokeAllAsync(string subject)
     {
-        var userTokensKey = RedisKeys.UserRefreshTokens(userCode);
+        var userTokensKey = RedisKeys.UserRefreshTokens(subject);
         var existing = await _redis.GetStringAsync(userTokensKey) ?? string.Empty;
 
-        foreach (var token in existing.Split(TokenSeparator, StringSplitOptions.RemoveEmptyEntries))
-            await _redis.DeleteAsync(RedisKeys.RefreshToken(token));
+        foreach (var hash in existing.Split(TokenSeparator, StringSplitOptions.RemoveEmptyEntries))
+            await _redis.DeleteAsync(RedisKeys.RefreshToken(hash));
 
         await _redis.DeleteAsync(userTokensKey);
-        _logger.LogInformation("All refresh tokens revoked for user={UserCode}", userCode);
+        _logger.LogInformation("All refresh tokens revoked for subject={Subject}", subject);
+    }
+
+    public async Task RevokeAllForDeviceAsync(string subject, string? deviceId)
+    {
+        var userTokensKey = RedisKeys.UserRefreshTokens(subject);
+        var existing = await _redis.GetStringAsync(userTokensKey) ?? string.Empty;
+
+        // Cac hash cua thiet bi bi thu hoi duoc de lai trong danh sach — chung se tu that
+        // bai o ValidateAsync (key RefreshToken da bi xoa) va bi day ra dan qua
+        // MaxTokensPerUser hoac qua lan RevokeAllAsync ke tiep. Khong dang lam sach ngay
+        // vi phai doc lai tung payload chi de biet hash nao thuoc thiet bi nao.
+        foreach (var hash in existing.Split(TokenSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var payload = await _redis.GetAsync<RefreshTokenPayload>(RedisKeys.RefreshToken(hash));
+            if (payload is not null && string.Equals(payload.DeviceId, deviceId, StringComparison.Ordinal))
+                await _redis.DeleteAsync(RedisKeys.RefreshToken(hash));
+        }
+
+        _logger.LogInformation("Refresh tokens revoked for subject={Subject}, device={DeviceId}", subject, deviceId ?? "unknown");
     }
 }
