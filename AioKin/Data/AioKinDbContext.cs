@@ -1,6 +1,7 @@
 using AioKin.Data.Entities.Core;
 using AioKin.Data.Entities.Family;
 using AioKin.Data.Entities.Security;
+using AioKin.Data.Entities.Sync;
 using AioKin.Data.Entities.Vault;
 using Microsoft.EntityFrameworkCore;
 
@@ -29,6 +30,10 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
     public DbSet<Prompt> Prompts => Set<Prompt>();
     public DbSet<PromptVariable> PromptVariables => Set<PromptVariable>();
     public DbSet<PromptTag> PromptTags => Set<PromptTag>();
+    public DbSet<Device> Devices => Set<Device>();
+    public DbSet<SyncLogEntry> SyncLog => Set<SyncLogEntry>();
+    public DbSet<SyncConflict> SyncConflicts => Set<SyncConflict>();
+    public DbSet<BackupSnapshot> BackupSnapshots => Set<BackupSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -241,6 +246,27 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
             // xoa mot user con prompt do ho tao ra phai that bai ro rang, khong am tham
             // mo con/xoa lan noi dung dang chia se trong mot space.
             entity.HasOne(p => p.Author).WithMany().HasForeignKey(p => p.AuthorUserID).OnDelete(DeleteBehavior.Restrict);
+
+            // Version la base_version cho /sync/push: EF tu them "WHERE version = @original"
+            // vao UPDATE va nem DbUpdateConcurrencyException neu 0 dong bi anh huong — bat
+            // dung race giua 2 push gan nhu cung luc, la lop phong thu THU HAI ben canh so
+            // sanh BaseVersion tuong minh trong SyncService (xem Task 2).
+            //
+            // P3: doc lai gia tri version ma trigger vault.fn_prompts_before_update vua bump
+            // sau moi UPDATE — thieu no thi EF giu nguyen gia tri cu trong bo nho (stale) sau
+            // SaveChangesAsync, du DB da co version moi.
+            //
+            // Dung ValueGeneratedOnUpdate() (KHONG phai OnAddOrUpdate()): trigger chi bump o
+            // BEFORE UPDATE, khong co trigger/default nao cho INSERT, nen cot khong co gia tri
+            // sinh boi DB luc insert. OnAddOrUpdate() bao EF cot nay se DUOC DB SINH RA CA LUC
+            // INSERT nen EF bo qua gia tri client dat (Version = 1) khoi cau INSERT — voi
+            // "prompts.version" khong co DEFAULT trong DB, ket qua la NULL duoc insert va vi
+            // pham NOT NULL (da xac nhan bang that bai that cua 4 test hien co khi dùng
+            // OnAddOrUpdate). OnUpdate() moi dung y: client gui gia tri luc INSERT, con luc
+            // UPDATE thi EF doc lai gia tri (qua RETURNING) sau khi trigger da bump no.
+            entity.Property(p => p.Version)
+                .IsConcurrencyToken()
+                .ValueGeneratedOnUpdate();
         });
 
         modelBuilder.Entity<PromptVariable>(entity =>
@@ -256,6 +282,39 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
             entity.HasOne(pt => pt.Prompt).WithMany(p => p.PromptTags).HasForeignKey(pt => pt.PromptID).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(pt => pt.Tag).WithMany().HasForeignKey(pt => pt.TagID).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(pt => pt.TagID);
+        });
+
+        modelBuilder.Entity<Device>(entity =>
+        {
+            // P16: khoa composite (user_id, device_id), KHONG phai device_id rieng le — neu
+            // chi khoa tren device_id, mot user dang nhap co the gui deviceId trung voi thiet
+            // bi cua user khac va ghi de dong cua ho. device_id ghi vao bang nay phai luon lay
+            // tu phien dang nhap cua chinh caller, khong bao gio nhan tu body ma tin la cua
+            // nguoi khac (tang sau se ghi bang nay).
+            entity.HasKey(d => new { d.UserID, d.DeviceID });
+            entity.HasIndex(d => d.LastSyncedAt).HasFilter("is_stale = false");
+        });
+
+        modelBuilder.Entity<SyncLogEntry>(entity =>
+        {
+            entity.Property(e => e.SyncLogID).ValueGeneratedOnAdd();
+            entity.HasIndex(e => new { e.SpaceID, e.CreatedAt });
+            entity.HasIndex(e => new { e.EntityType, e.EntityID });
+
+            // P2: trigger sync.fn_prompts_write_log khong tu dat created_at va cot khong co
+            // default nao khac — thieu dong nay thi moi INSERT cua trigger se loi vi
+            // created_at la NOT NULL.
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<SyncConflict>(entity =>
+        {
+            entity.HasIndex(c => new { c.EntityType, c.EntityID }).HasFilter("resolved = false");
+        });
+
+        modelBuilder.Entity<BackupSnapshot>(entity =>
+        {
+            entity.HasIndex(s => new { s.SpaceID, s.CreatedAt }).IsDescending(false, true);
         });
     }
 }
