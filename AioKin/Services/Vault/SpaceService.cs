@@ -175,6 +175,36 @@ public class SpaceService : ISpaceService
         if (membership is null)
             return OperationResult.Fail("NotFound", "Nguoi nay khong o trong team.");
 
+        // Final review finding 1: CanManage gom ca Admin, nhung Admin KHONG duoc xoa mot
+        // Owner/Admin khac - chi Owner moi co quyen nay (vd chan Admin tu chiem doat team bang
+        // cach xoa het Owner). Tu roi team (leave) khong bi chan boi rule nay vi ho dang tu
+        // quyet dinh cho chinh minh, khong phai "xoa nguoi khac". 403 Forbidden vi day la thieu
+        // quyen (giong cac nhanh Forbidden khac o tren), khong phai xung dot trang thai.
+        if (!isSelfLeave && membership.MemberRole is SpaceMemberRole.Owner or SpaceMemberRole.Admin)
+        {
+            var callerRole = await _db.SpaceMembers
+                .Where(m => m.SpaceID == space.SpaceID && m.UserID == callerMembership.UserID)
+                .Select(m => (SpaceMemberRole?)m.MemberRole)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (callerRole != SpaceMemberRole.Owner)
+                return OperationResult.Fail("Forbidden", "Chi Owner moi duoc xoa mot Owner hoac Admin khac.");
+        }
+
+        // Final review finding 1: khong duoc xoa Owner duy nhat con lai - lam vay se mo coi
+        // team vinh vien (khong con ai co quyen quan ly). Ap dung ca khi tu roi (leave) lan
+        // khi bi Owner khac xoa. 409 Conflict vi day la xung dot voi trang thai hien tai (chi
+        // con 1 Owner), khong phai thieu quyen — giong cach "Conflict" duoc dung o AddMemberAsync
+        // cho "da la thanh vien roi".
+        if (membership.MemberRole == SpaceMemberRole.Owner)
+        {
+            var ownerCount = await _db.SpaceMembers.CountAsync(
+                m => m.SpaceID == space.SpaceID && m.MemberRole == SpaceMemberRole.Owner, cancellationToken);
+
+            if (ownerCount <= 1)
+                return OperationResult.Fail("Conflict", "Khong the xoa Owner duy nhat con lai cua team.");
+        }
+
         _db.SpaceMembers.Remove(membership);
         await _db.SaveChangesAsync(cancellationToken);
 
