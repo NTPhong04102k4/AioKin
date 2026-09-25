@@ -40,7 +40,18 @@ public class SyncService : ISyncService
         foreach (var entry in request.Entities)
             results.Add(await PushOneSafeAsync(membership, callerDeviceId, entry, cancellationToken));
 
-        return OperationResult.Ok(data: results);
+        // Fix round 1, finding 5: tong ket cap-batch, de client chi doc OperationResult.Success
+        // (luon true/200 o day, ke ca khi mot vai entry rieng le "rejected"/"conflict") khong
+        // the bo lot that bai cua tung entry ben trong Results.
+        var batch = new SyncPushBatchResponse
+        {
+            Results = results,
+            AppliedCount = results.Count(r => r.Status == "applied"),
+            ConflictCount = results.Count(r => r.Status == "conflict"),
+            RejectedCount = results.Count(r => r.Status == "rejected")
+        };
+
+        return OperationResult.Ok(data: batch);
     }
 
     private async Task TouchDeviceAsync(Guid userId, string? deviceId, CancellationToken cancellationToken)
@@ -79,6 +90,26 @@ public class SyncService : ISyncService
         if (validationError is not null)
             return Rejected(entry.PromptId, validationError);
 
+        try
+        {
+            return await DispatchAsync(membership, deviceId, entry, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Fix round 1, finding 1c: luoi an toan CUOI CUNG. Mot so loi (vd EF nem
+            // InvalidOperationException NGAY tai Add()/AddRange() khi 2 entity moi trong CUNG
+            // 1 entry trung khoa chinh — xem finding 1a/1b) xay ra TRUOC khi toi
+            // SaveChangesAsync, tuc la ngoai pham vi cac catch(DbUpdateException) hep hon o
+            // ben duoi. Khong bat o day thi 1 entry hong se lam bung ca request (500) va keo
+            // theo cac entry SAU trong CUNG batch bi mat ket qua/khong bao gio chay toi. Loai
+            // tru OperationCanceledException de khong nuot mat viec huy request binh thuong.
+            _db.ChangeTracker.Clear();
+            return Rejected(entry.PromptId, "Khong the ap dung thay doi nay.");
+        }
+    }
+
+    private async Task<SyncPushResponse> DispatchAsync(SpaceMembership membership, string? deviceId, PushPromptEntry entry, CancellationToken cancellationToken)
+    {
         if (entry.Operation == "delete")
             return await PushDeleteAsync(membership, deviceId, entry, cancellationToken);
 
@@ -197,7 +228,12 @@ public class SyncService : ISyncService
         prompt.Title = entry.Payload!.Title;
         prompt.Content = entry.Payload.Content;
         prompt.Description = entry.Payload.Description;
-        prompt.CategoryID = refs.CategoryId;
+        // Fix round 1, finding 4: CHI ghi de CategoryID khi client THAT SU gui CategoryId hoac
+        // ClearCategory=true (refs.CategoryProvided) — omit ca hai nghia la giu nguyen category
+        // hien co, dung theo ngu nghia G12 da ap dung cho Tags/Variables (truoc day omit se bi
+        // hieu nham thanh "xoa category", sai voi ruling).
+        if (refs.CategoryProvided)
+            prompt.CategoryID = refs.CategoryId;
         // Carry-forward: MOI write do push gay ra deu phai gan deviceId cua CHINH phien goi.
         prompt.UpdatedDeviceId = deviceId;
 
@@ -211,28 +247,18 @@ public class SyncService : ISyncService
         if (variablesProvided)
             ReplaceVariables(prompt, entry.Payload.Variables!);
 
-        try
-        {
-            await _db.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            // Race hiem: version doi giua luc doc va luc save trong CHINH request nay (2 push
-            // gan nhu dong thoi). P9: nap lai o day PHAI la TRACKED (khong AsNoTracking) — mot
-            // mutation tren entity untracked se khong bao gio duoc SaveChangesAsync ghi xuong.
-            _db.ChangeTracker.Clear();
-            var latest = await LoadTrackedPromptByIdAsync(prompt.PromptID, cancellationToken);
-            return await RecordConflictAsync(latest!, entry, cancellationToken);
-        }
-        catch (DbUpdateException)
-        {
-            _db.ChangeTracker.Clear();
-            return Rejected(entry.PromptId, "Khong the ap dung thay doi nay.");
-        }
-
         // P12: neu cot prompt (title/content/description/category) KHONG doi, trigger se khong
         // bump version/ghi sync_log — tu ghi 1 dong thu cong neu tag/variable co doi that, de
-        // Task 3 (pull) con biet ma dong bo cho cac thiet bi khac.
+        // Task 3 (pull) con biet ma dong bo cho cac thiet bi khac. Quyet dinh + Add() dong log
+        // nay o DAY (TRUOC SaveChangesAsync — fix round 1, finding 2): du lieu can de so sanh
+        // (title/content/description/category MOI, refs.TagIds, danh sach variable moi) da co
+        // du trong bo nho, khong can doi SaveChangesAsync tra ve gi ca. Prompt.Version cung da
+        // dung san o day cho truong hop nay: khi noi dung KHONG doi, trigger vault
+        // .fn_prompts_before_update khong chay nen version se khong doi qua SaveChangesAsync —
+        // gia tri hien tai cua prompt.Version chinh la gia tri cuoi cung. Gop chung vao MOT
+        // SaveChangesAsync duy nhat voi prompt/tag/variable dam bao tag/variable va sync_log
+        // hoac cung thanh cong hoac cung khong ghi gi — khong con truong hop tag da luu ma
+        // sync_log bi mat vi mot SaveChangesAsync THU HAI rieng biet loi giua chung.
         var contentUnchanged =
             titleBefore == prompt.Title &&
             contentBefore == prompt.Content &&
@@ -246,17 +272,36 @@ public class SyncService : ISyncService
                 !variablesBefore.SequenceEqual(prompt.Variables.Select(VariableSignature).OrderBy(s => s));
 
             if (tagsActuallyChanged || variablesActuallyChanged)
-                await WriteTagVariableSyncLogAsync(membership.SpaceID, prompt, deviceId, cancellationToken);
+                AddTagVariableSyncLogEntry(membership.SpaceID, prompt, deviceId);
+        }
+
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Race hiem: version doi giua luc doc va luc save trong CHINH request nay (2 push
+            // gan nhu dong thoi). P9: nap lai o day PHAI la TRACKED (khong AsNoTracking) — mot
+            // mutation tren entity untracked se khong bao gio duoc SaveChangesAsync ghi xuong.
+            // Fix round 1, finding 3: phai loc lai THEO SPACE (khong phai chi PromptID) va xu ly
+            // truong hop dong da bien mat (vd space bi xoa cascade giua chung) bang Rejected
+            // thay vi latest! (se nem NullReferenceException/500).
+            _db.ChangeTracker.Clear();
+            var latest = await LoadTrackedPromptAsync(membership.SpaceID, prompt.PromptID, cancellationToken);
+            if (latest is null)
+                return Rejected(entry.PromptId, "Khong the ap dung thay doi nay.");
+
+            return await RecordConflictAsync(latest, entry, cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            _db.ChangeTracker.Clear();
+            return Rejected(entry.PromptId, "Khong the ap dung thay doi nay.");
         }
 
         return new SyncPushResponse { PromptId = entry.PromptId, Status = "applied", NewVersion = prompt.Version };
     }
-
-    private Task<Prompt?> LoadTrackedPromptByIdAsync(Guid promptId, CancellationToken cancellationToken)
-        => _db.Prompts
-            .Include(p => p.PromptTags).ThenInclude(pt => pt.Tag)
-            .Include(p => p.Variables)
-            .FirstOrDefaultAsync(p => p.PromptID == promptId, cancellationToken);
 
     private async Task<SyncPushResponse> PushDeleteAsync(SpaceMembership membership, string? deviceId, PushPromptEntry entry, CancellationToken cancellationToken)
     {
@@ -279,9 +324,14 @@ public class SyncService : ISyncService
         }
         catch (DbUpdateConcurrencyException)
         {
+            // Fix round 1, finding 3: cung sua nhu ApplyUpdateOrConflictAsync — loc lai THEO
+            // SPACE va tra Rejected neu dong da bien mat, khong dung latest! (NullReferenceException).
             _db.ChangeTracker.Clear();
-            var latest = await LoadTrackedPromptByIdAsync(prompt.PromptID, cancellationToken);
-            return await RecordConflictAsync(latest!, entry, cancellationToken);
+            var latest = await LoadTrackedPromptAsync(membership.SpaceID, prompt.PromptID, cancellationToken);
+            if (latest is null)
+                return Rejected(entry.PromptId, "Khong the ap dung thay doi nay.");
+
+            return await RecordConflictAsync(latest, entry, cancellationToken);
         }
 
         return new SyncPushResponse { PromptId = entry.PromptId, Status = "applied", NewVersion = prompt.Version };
@@ -310,8 +360,8 @@ public class SyncService : ISyncService
 
         _db.SyncConflicts.Add(conflict);
         // P9: "remote" o day PHAI la mot entity TRACKED (moi ham goi RecordConflictAsync trong
-        // file nay deu nap qua LoadTrackedPromptAsync/LoadTrackedPromptByIdAsync, khong bao gio
-        // AsNoTracking) — neu khong, dong SaveChangesAsync ben duoi se khong ghi gi ca.
+        // file nay deu nap qua LoadTrackedPromptAsync, khong bao gio AsNoTracking) — neu khong,
+        // dong SaveChangesAsync ben duoi se khong ghi gi ca.
         remote.HasConflict = true;
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -338,6 +388,13 @@ public class SyncService : ISyncService
 
     private sealed class ResolvedRefs
     {
+        /// <summary>
+        /// Fix round 1, finding 4: true khi client THAT SU gui CategoryId khac null hoac
+        /// ClearCategory=true — chi khi do noi goi moi duoc ghi de Prompt.CategoryID. False (ca
+        /// CategoryId lan ClearCategory deu vang mat) nghia la "khong dong den", giu nguyen
+        /// category hien co — giong het ngu nghia G12 da ap dung cho Tags/Variables.
+        /// </summary>
+        public bool CategoryProvided;
         public Guid? CategoryId;
         public Category? NewCategory;
         public List<Guid> TagIds = [];
@@ -356,8 +413,15 @@ public class SyncService : ISyncService
     {
         var refs = new ResolvedRefs();
 
-        if (payload.CategoryId is { } wantedCategoryId)
+        if (payload.ClearCategory)
         {
+            // Fix round 1, finding 4: xoa han category — tuong minh, khac voi "omit" (giu nguyen).
+            refs.CategoryProvided = true;
+            refs.CategoryId = null;
+        }
+        else if (payload.CategoryId is { } wantedCategoryId)
+        {
+            refs.CategoryProvided = true;
             var found = await _db.Categories.AsNoTracking()
                 .Where(c => c.CategoryID == wantedCategoryId)
                 .Select(c => new { c.SpaceID })
@@ -441,6 +505,13 @@ public class SyncService : ISyncService
             }
         }
 
+        // Fix round 1, finding 1a: du Validate() da chan trung TagId THO trong payload, van co
+        // the co 2 TagId THO KHAC NHAU cung tro ve MOT id sau khi resolve-by-name (2 TagRef moi,
+        // trung Name, chua ton tai trong DB — ca hai cung "gop" vao id cua cai duoc xu ly truoc,
+        // xem pendingNames o tren). Khong dedupe o day thi buoc gan PromptTags ben ngoai se tao
+        // 2 dong (PromptID, TagID) trung khoa chinh -> EF nem InvalidOperationException khi Add.
+        refs.TagIds = [.. refs.TagIds.Distinct()];
+
         return (refs, null);
     }
 
@@ -497,13 +568,20 @@ public class SyncService : ISyncService
     }
 
     /// <summary>
-    /// P12: ghi thu cong 1 dong sync_log cho thay doi CHI o tag/variable — trigger DB
+    /// P12: chuan bi 1 dong sync_log cho thay doi CHI o tag/variable — trigger DB
     /// (sync.fn_prompts_write_log) chi lang nghe cot cua BANG prompts, khong biet gi ve
     /// prompt_tags/prompt_variables nen se khong tu ghi truong hop nay. "kind":"tags_variables"
     /// la dau hieu de Task 3 (pull) phan biet voi payload noi dung prompt day du (to_jsonb cua
     /// trigger khong co truong "kind").
+    ///
+    /// Fix round 1, finding 2: ham nay CHI Add() vao ChangeTracker, KHONG tu SaveChangesAsync —
+    /// goi tai ApplyUpdateOrConflictAsync TRUOC dong SaveChangesAsync "chinh" cua prompt/tag/
+    /// variable, de ca 3 loai thay doi cung nam trong MOT giao dich atomic. Truoc day ham nay
+    /// tu Save rieng SAU khi prompt/tag/variable da Save xong — neu lan Save thu hai nay loi thi
+    /// tag da duoc luu nhung khong co sync_log tuong ung, thiet bi khac se khong bao gio thay
+    /// thay doi do o lan pull ke tiep.
     /// </summary>
-    private async Task WriteTagVariableSyncLogAsync(Guid spaceId, Prompt prompt, string? deviceId, CancellationToken cancellationToken)
+    private void AddTagVariableSyncLogEntry(Guid spaceId, Prompt prompt, string? deviceId)
     {
         var payloadJson = System.Text.Json.JsonSerializer.Serialize(new
         {
@@ -523,8 +601,6 @@ public class SyncService : ISyncService
             OriginDeviceId = deviceId,
             Version = prompt.Version
         });
-
-        await _db.SaveChangesAsync(cancellationToken);
     }
 
     private static SyncPushResponse Rejected(Guid promptId, string error) => new() { PromptId = promptId, Status = "rejected", Error = error };
@@ -563,15 +639,22 @@ public class SyncService : ISyncService
 
         if (payload.Tags is not null)
         {
+            var seenTagIds = new HashSet<Guid>();
             foreach (var tag in payload.Tags)
             {
                 if (tag.TagId == Guid.Empty || string.IsNullOrWhiteSpace(tag.Name) || tag.Name.Length > 50)
                     return "Tag khong hop le.";
+
+                // Fix round 1, finding 1b: TagId trung nhau TRONG CUNG mot payload phai bi tu
+                // choi rieng entry nay o day, khong duoc de lot xuong EF roi crash luc Add().
+                if (!seenTagIds.Add(tag.TagId))
+                    return "Tag bi trung trong cung 1 entry.";
             }
         }
 
         if (payload.Variables is not null)
         {
+            var seenVariableIds = new HashSet<Guid>();
             foreach (var v in payload.Variables)
             {
                 if (v.VariableId == Guid.Empty || string.IsNullOrWhiteSpace(v.VarKey) || v.VarKey.Length > 50)
@@ -582,6 +665,10 @@ public class SyncService : ISyncService
                     return "Variable DefaultValue qua dai.";
                 if (v.VarType is { Length: > 20 })
                     return "Variable VarType qua dai.";
+
+                // Fix round 1, finding 1b: cung ly do voi Tag o tren.
+                if (!seenVariableIds.Add(v.VariableId))
+                    return "Variable bi trung trong cung 1 entry.";
             }
         }
 

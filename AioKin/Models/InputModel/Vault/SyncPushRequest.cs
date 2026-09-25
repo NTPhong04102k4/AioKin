@@ -47,6 +47,16 @@ public class PromptPayload
     public Guid? CategoryId { get; set; }
     public string? CategoryName { get; set; }
 
+    /// <summary>
+    /// Fix round 1, finding 4 (consistency voi G12): "CategoryId omitted/null" gio la GIU
+    /// NGUYEN category hien co (giong het ngu nghia cua Tags/Variables = null o tren), khong
+    /// con tu dong XOA category nhu truoc. Muon xoa han category, client phai gui tuong minh
+    /// ClearCategory = true. Chon co rieng thay vi mot JsonElement?/wrapper type de khong can
+    /// custom JsonConverter — don gian, tuong minh, du cho ca 3 truong hop: omit (giu nguyen),
+    /// CategoryId co gia tri (gan/tao), ClearCategory=true (xoa).
+    /// </summary>
+    public bool ClearCategory { get; set; }
+
     /// <summary>Expo gap G12: null = giu nguyen tag hien co, mang rong tuong minh [] = xoa het.</summary>
     public List<TagRef>? Tags { get; set; }
 
