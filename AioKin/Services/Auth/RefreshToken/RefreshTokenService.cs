@@ -73,8 +73,26 @@ public class RefreshTokenService : IRefreshTokenService
 
         if (hashes.Count > MaxTokensPerUser)
         {
-            // Token bi day ra khoi danh sach cung phai bi thu hoi, neu khong no van dung
-            // duoc cho toi khi het TTL ma khong con cach nao revoke.
+            // Loc hash CHET truoc khi day theo vi tri: RevokeAsync/RevokeAllForDeviceAsync chi
+            // xoa key RefreshToken, khong don ngay khoi danh sach nay — neu day thang theo vi
+            // tri se co the day nham mot token CON SONG cua thiet bi khac ra ngoai (thiet bi A
+            // dang song, thiet bi B refresh lien tuc >MaxTokensPerUser lan se lam token cua A
+            // bi xoa oan du A chua he dang xuat).
+            var alive = new List<string>(hashes.Count);
+            foreach (var h in hashes)
+            {
+                // Hash vua duoc SetAsync ngay o tren chac chan con song — khoi can hoi lai Redis.
+                if (h == hash || await _redis.ExistsAsync(RedisKeys.RefreshToken(h)))
+                    alive.Add(h);
+            }
+            hashes = alive;
+        }
+
+        if (hashes.Count > MaxTokensPerUser)
+        {
+            // Van con qua nguong sau khi loc hash chet — day cac token CON SONG cu nhat theo
+            // vi tri va thu hoi luon, neu khong chung van dung duoc cho toi khi het TTL ma
+            // khong con cach nao revoke.
             foreach (var evicted in hashes[..^MaxTokensPerUser])
                 await _redis.DeleteAsync(RedisKeys.RefreshToken(evicted));
 
@@ -111,9 +129,10 @@ public class RefreshTokenService : IRefreshTokenService
         var existing = await _redis.GetStringAsync(userTokensKey) ?? string.Empty;
 
         // Cac hash cua thiet bi bi thu hoi duoc de lai trong danh sach — chung se tu that
-        // bai o ValidateAsync (key RefreshToken da bi xoa) va bi day ra dan qua
-        // MaxTokensPerUser hoac qua lan RevokeAllAsync ke tiep. Khong dang lam sach ngay
-        // vi phai doc lai tung payload chi de biet hash nao thuoc thiet bi nao.
+        // bai o ValidateAsync (key RefreshToken da bi xoa) va duoc TrackTokenAsync loc bo
+        // (hash chet) vao lan GenerateAsync ke tiep khi danh sach vuot MaxTokensPerUser, hoac
+        // qua lan RevokeAllAsync ke tiep. Khong dang lam sach ngay vi phai doc lai tung
+        // payload chi de biet hash nao thuoc thiet bi nao.
         foreach (var hash in existing.Split(TokenSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
             var payload = await _redis.GetAsync<RefreshTokenPayload>(RedisKeys.RefreshToken(hash));

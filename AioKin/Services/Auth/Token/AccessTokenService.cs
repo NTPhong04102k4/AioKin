@@ -97,8 +97,26 @@ public class AccessTokenService : IAccessTokenService
 
         if (hashes.Count > MaxSessionsPerSubject)
         {
-            // Token bi day ra khoi danh sach cung phai bi thu hoi, neu khong no van dung
-            // duoc cho toi khi het TTL ma khong con cach nao revoke.
+            // Loc hash CHET truoc khi day theo vi tri: RevokeForDeviceAsync/RevokeByHashAsync
+            // chi xoa key AccessSession, khong don ngay khoi danh sach nay — neu day thang
+            // theo vi tri se co the day nham mot session CON SONG cua thiet bi khac ra ngoai
+            // (thiet bi A dang song, thiet bi B refresh lien tuc >MaxSessionsPerSubject lan se
+            // lam session cua A bi xoa oan du A chua he dang xuat).
+            var alive = new List<string>(hashes.Count);
+            foreach (var h in hashes)
+            {
+                // Hash vua duoc SetAsync ngay o tren chac chan con song — khoi can hoi lai Redis.
+                if (h == hash || await _redis.ExistsAsync(RedisKeys.AccessSession(h)))
+                    alive.Add(h);
+            }
+            hashes = alive;
+        }
+
+        if (hashes.Count > MaxSessionsPerSubject)
+        {
+            // Van con qua nguong sau khi loc hash chet — day cac session CON SONG cu nhat
+            // theo vi tri va thu hoi luon, neu khong chung van dung duoc cho toi khi het TTL
+            // ma khong con cach nao revoke.
             foreach (var evicted in hashes[..^MaxSessionsPerSubject])
                 await _redis.DeleteAsync(RedisKeys.AccessSession(evicted));
 
@@ -186,8 +204,14 @@ public class AccessTokenService : IAccessTokenService
 
         var session = await _redis.GetAsync<AccessTokenSession>(RedisKeys.AccessSession(match));
 
-        // Bo khoi danh sach theo doi trong moi truong hop: da thu hoi thanh cong hoac hash
-        // nay tu lau da chet (session het han) — ca hai deu khong con ly do gi de giu lai.
+        // Xoa key that trong Redis TRUOC khi cap nhat danh sach theo doi. Neu lam nguoc lai
+        // (bo khoi danh sach truoc) ma tien trinh chet/loi mang ngay sau do, session van con
+        // song trong Redis nhung khong con ai biet de hien thi hay thu hoi lai duoc nua — ro ri
+        // vinh vien cho toi khi het TTL. Xoa key truoc thi truong hop xau nhat chi la danh sach
+        // con giu mot hash da chet, va hash chet do se tu duoc don o ListSessionsAsync (P10)
+        // hoac o TrackSessionAsync khi vuot MaxSessionsPerSubject.
+        await _redis.DeleteAsync(RedisKeys.AccessSession(match));
+
         hashes.Remove(match);
         await _redis.SetStringAsync(key, string.Join(SessionSeparator, hashes), TimeSpan.FromSeconds(AccessTokenLifetimeSeconds));
 
@@ -197,7 +221,6 @@ public class AccessTokenService : IAccessTokenService
             return null;
         }
 
-        await _redis.DeleteAsync(RedisKeys.AccessSession(match));
         _logger.LogInformation("Access session revoked by id for subject={Subject}", subject);
         return session;
     }
@@ -208,8 +231,9 @@ public class AccessTokenService : IAccessTokenService
         var existing = await _redis.GetStringAsync(key) ?? string.Empty;
 
         // Hash con lai trong danh sach sau khi bi thu hoi o day se tu that bai o
-        // ValidateAsync (key AccessSession da bi xoa) va duoc don dan qua MaxSessionsPerSubject
-        // hoac RevokeAllForSubjectAsync ke tiep — cung pattern voi
+        // ValidateAsync (key AccessSession da bi xoa) va duoc TrackSessionAsync loc bo (hash
+        // chet) vao lan IssueAsync ke tiep khi danh sach vuot MaxSessionsPerSubject, hoac qua
+        // RevokeAllForSubjectAsync ke tiep — cung pattern voi
         // RefreshTokenService.RevokeAllForDeviceAsync, khong doc lai toan bo danh sach chi de
         // loai bo mot hash.
         foreach (var hash in existing.Split(SessionSeparator, StringSplitOptions.RemoveEmptyEntries))
