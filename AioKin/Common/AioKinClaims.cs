@@ -19,6 +19,10 @@ public static class AioKinClaims
 
     /// <summary>StaffID cua tai khoan quan tri.</summary>
     public const string StaffId = "staff_id";
+
+    /// <summary>Access token goc (khong phai jti) — cho phep Logout revoke dung session nay
+    /// ma khong phai parse lai header Authorization.</summary>
+    public const string SessionToken = "session_token";
 }
 
 public static class ClaimsPrincipalExtensions
@@ -41,4 +45,7 @@ public static class ClaimsPrincipalExtensions
 
     public static string? GetJti(this ClaimsPrincipal principal)
         => principal.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti);
+
+    public static string? GetSessionToken(this ClaimsPrincipal principal)
+        => principal.FindFirstValue(AioKinClaims.SessionToken);
 }
