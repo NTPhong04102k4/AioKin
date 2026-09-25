@@ -234,6 +234,7 @@ builder.Services.AddScoped<IFamilyService, FamilyService>();
 builder.Services.AddScoped<ISpaceContext, SpaceContext>();
 builder.Services.AddScoped<ISpaceService, SpaceService>();
 builder.Services.AddScoped<IPromptBrowseService, PromptBrowseService>();
+builder.Services.AddScoped<ISyncService, SyncService>();
 
 // ─── Xac thuc ─────────────────────────────────────────────────────────────────
 
