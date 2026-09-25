@@ -43,9 +43,6 @@ public static class ClaimsPrincipalExtensions
     public static int? GetStaffId(this ClaimsPrincipal principal)
         => int.TryParse(principal.FindFirstValue(AioKinClaims.StaffId), out var id) ? id : null;
 
-    public static string? GetJti(this ClaimsPrincipal principal)
-        => principal.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti);
-
     public static string? GetSessionToken(this ClaimsPrincipal principal)
         => principal.FindFirstValue(AioKinClaims.SessionToken);
 }

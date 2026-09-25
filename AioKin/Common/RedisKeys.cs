@@ -8,9 +8,6 @@ public static class RedisKeys
 {
     // ─── Auth ─────────────────────────────────────────────────────────────────
 
-    /// <summary>Blacklist JWT theo JTI. TTL = thoi gian con lai cua access token.</summary>
-    public static string JwtBlacklist(string jti) => $"auth:blacklist:{jti}";
-
     /// <summary>Refresh token → {userCode}|{role}.</summary>
     public static string RefreshToken(string token) => $"auth:refresh:{token}";
 
