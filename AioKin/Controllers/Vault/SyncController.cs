@@ -38,4 +38,19 @@ public class SyncController : ControllerBase
 
         return this.ToActionResult(await _syncService.PushAsync(request, session?.DeviceId, cancellationToken));
     }
+
+    /// <summary>
+    /// Incremental (hoac snapshot khi retention/khoi luong vuot nguong) — xem
+    /// SyncService.PullAsync va Task 3 trong progress.md.
+    /// </summary>
+    [HttpGet("pull")]
+    public async Task<IActionResult> Pull([FromQuery] Guid spaceUuid, [FromQuery] long since, CancellationToken cancellationToken)
+    {
+        // Cung nguon DeviceId voi Push (P16/carry-forward): luon tu session cua chinh caller,
+        // khong bao gio tu query string — dung de echo-suppress dung (user, device) cua no.
+        var sessionHash = User.GetSessionToken();
+        var session = string.IsNullOrEmpty(sessionHash) ? null : await _accessTokenService.GetByHashAsync(sessionHash);
+
+        return this.ToActionResult(await _syncService.PullAsync(spaceUuid, since, session?.DeviceId, cancellationToken));
+    }
 }

@@ -33,6 +33,14 @@ public class SyncLogEntry
     [MaxLength(100)]
     public string? OriginDeviceId { get; set; }
 
+    /// <summary>
+    /// Carry-forward Task 3: nguoi THAT SU tao ra dong nay — ghi kem OriginDeviceId de pull
+    /// suppress echo dung tren CAP (user, device), khong chi device (xem Prompt.UpdatedByUserId).
+    /// Trigger sync.fn_prompts_write_log gan gia tri nay tu vault.prompts.updated_by_user_id;
+    /// AddTagVariableSyncLogEntry (SyncService) gan truc tiep tu membership.UserID.
+    /// </summary>
+    public Guid? OriginUserId { get; set; }
+
     public int Version { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -1,28 +1,49 @@
+using System.Text.Json;
 using AioKin.Data;
 using AioKin.Data.Entities.Sync;
 using AioKin.Data.Entities.Vault;
 using AioKin.Models.InputModel.Auth.User;
 using AioKin.Models.InputModel.Vault;
 using AioKin.Models.ViewModel.Vault;
+using AioKin.Services.Common.Storage;
 using Microsoft.EntityFrameworkCore;
 
 namespace AioKin.Services.Vault;
 
 /// <summary>
-/// Nua "push" cua sync engine (pull/resolve o Task 3-4). Xem
-/// .superpowers/sdd/2026-09-25-promptvault-sync-engine/progress.md muc "Task 2" cho toan bo
-/// ruling — cac ghi chu ben duoi chi nhac lai diem quan trong nhat cua tung ruling, khong lap
-/// lai toan van.
+/// Push (Task 2) + Pull (Task 3) cua sync engine (resolve o Task 4). Xem
+/// .superpowers/sdd/2026-09-25-promptvault-sync-engine/progress.md muc "Task 2"/"Task 3" cho
+/// toan bo ruling — cac ghi chu ben duoi chi nhac lai diem quan trong nhat cua tung ruling,
+/// khong lap lai toan van.
 /// </summary>
 public class SyncService : ISyncService
 {
     private readonly AioKinDbContext _db;
     private readonly ISpaceContext _spaceContext;
+    private readonly IBlobStorageService? _blobStorage;
+    private readonly ILogger<SyncService> _logger;
 
-    public SyncService(AioKinDbContext db, ISpaceContext spaceContext)
+    /// <summary>Neu so dong pending vuot nguong nay, snapshot re hon incremental (khi co blob storage).</summary>
+    private const int RowCountThreshold = 500;
+
+    /// <summary>
+    /// Ruling Task 3 (cursor khong duoc bo qua mot commit gan-dong-thoi): sync_log_id la cot
+    /// IDENTITY, gia tri duoc CAP luc INSERT nhung thu tu COMMIT giua 2 transaction gan nhu dong
+    /// thoi khong dam bao khop voi thu tu id — mot transaction lay id THAP HON co the commit
+    /// (va tro nen "visible") SAU mot transaction lay id CAO HON. Neu pull tra ve + tang cursor
+    /// toi id cao ngay khi no vua commit, dong id thap con dang "in-flight" se vinh vien bi bo
+    /// qua sau khi no cuoi cung cung commit (cursor da vuot qua no). Fix: chi tra ve (va chi cho
+    /// cursor tien toi) nhung dong da "du gia" hon SafetyWindow — du thoi gian de bat ky
+    /// transaction nao khac dang ghi gan do chac chan da commit xong.
+    /// </summary>
+    private static readonly TimeSpan SafetyWindow = TimeSpan.FromSeconds(2);
+
+    public SyncService(AioKinDbContext db, ISpaceContext spaceContext, ILogger<SyncService> logger, IBlobStorageService? blobStorage = null)
     {
         _db = db;
         _spaceContext = spaceContext;
+        _logger = logger;
+        _blobStorage = blobStorage;
     }
 
     public async Task<OperationResult> PushAsync(SyncPushRequest request, string? callerDeviceId, CancellationToken cancellationToken = default)
@@ -53,6 +74,271 @@ public class SyncService : ISyncService
 
         return OperationResult.Ok(data: batch);
     }
+
+    public async Task<OperationResult> PullAsync(Guid spaceUuid, long since, string? callerDeviceId, CancellationToken cancellationToken = default)
+    {
+        var membership = await _spaceContext.ResolveAsync(spaceUuid, cancellationToken);
+        if (membership is null)
+            return OperationResult.Fail("Forbidden", "Ban khong thuoc space nay.");
+
+        // Ruling P13: mot cursor THAT SU (since > 0, tuc la client da tung dong bo truoc do) ma
+        // nho hon dong sync_log CU NHAT con lai cho SPACE NAY nghia la mot doan lich su co the
+        // da bi cron retention xoa mat — khong the tra incremental an toan (se tra ve rong mot
+        // cach SAI, trong khi thuc ra co thay doi bi bo lot). Phai tra snapshot THAT, hoac (khong
+        // co blob storage) mot loi RO RANG — khong bao gio im lang tra "ban da dong bo day du"
+        // trong khi khong phai vay.
+        //
+        // since == 0 (client CHUA TUNG dong bo) LUON duoc coi la an toan, du oldestLogId cua
+        // space nay co the rat lon: sync_log_id la IDENTITY DUNG CHUNG toan he thong (khong
+        // rieng tung space), nen mot space "tre" (it hoat dong truoc do o KHONG GIAN KHAC) hoan
+        // toan co the co dong dau tien voi id lon chi vi cac space KHAC da dung het id thap hon
+        // — khong co nghia la CHINH space nay da mat lich su nao. Neu khong loai tru truong hop
+        // since=0, moi lan pull-lan-dau se sai tra ve snapshot thay vi incremental rong dung.
+        var oldestLogId = await _db.SyncLog
+            .Where(s => s.SpaceID == membership.SpaceID)
+            .OrderBy(s => s.SyncLogID)
+            .Select(s => (long?)s.SyncLogID)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var retentionExceeded = since > 0 && (oldestLogId is null || since < oldestLogId.Value - 1);
+
+        if (retentionExceeded)
+        {
+            if (_blobStorage is null)
+            {
+                _logger.LogWarning(
+                    "Pull retention-exceeded nhung khong co IBlobStorageService (space={SpaceUuid}, since={Since})",
+                    spaceUuid, since);
+                return OperationResult.Fail(
+                    "SyncUnavailable",
+                    "Lich su dong bo cho khoang thoi gian nay da het han va khong the tao snapshot luc nay. Vui long thu lai sau hoac lien he ho tro.");
+            }
+
+            return await BuildSnapshotFallbackAsync(membership, cancellationToken);
+        }
+
+        // Volume check (toi uu, khong phai dung/sai): so dong se phai tra qua nhieu thi snapshot
+        // re hon — nhung day KHONG phai mat du lieu nhu retention, nen thieu blob storage o day
+        // khong phai loi, chi la incremental se lon hon binh thuong (van dung).
+        var pendingCount = await _db.SyncLog.CountAsync(s => s.SpaceID == membership.SpaceID && s.SyncLogID > since, cancellationToken);
+        if (pendingCount > RowCountThreshold && _blobStorage is not null)
+            return await BuildSnapshotFallbackAsync(membership, cancellationToken);
+
+        // Ruling Task 3 (an toan cursor cho commit gan-dong-thoi): chi lay nhung dong da "du gia"
+        // hon SafetyWindow — xem ghi chu tren field SafetyWindow o dau class.
+        var threshold = DateTime.UtcNow - SafetyWindow;
+        var rows = await _db.SyncLog
+            .AsNoTracking()
+            .Where(s => s.SpaceID == membership.SpaceID && s.SyncLogID > since && s.CreatedAt <= threshold)
+            .OrderBy(s => s.SyncLogID)
+            .ToListAsync(cancellationToken);
+
+        // Cursor tien toi dong CUOI CUNG trong cua so an toan — KE CA nhung dong se bi loc
+        // (echo cua chinh caller) o buoc sau, de lan pull ke tiep khong phai xin lai chinh thay
+        // doi cua no moi lan.
+        var resumeCursor = rows.Count > 0 ? rows[^1].SyncLogID : since;
+
+        // Carry-forward Task 2 (echo suppression dung tren CAP user+device — xem
+        // Prompt.UpdatedByUserId/SyncLogEntry.OriginUserId): khong tra lai cho CHINH (user,
+        // device) vua tao ra thay doi do, no da biet no vua ghi gi. So sanh device MOT MINH la
+        // spoofable — 2 thanh vien KHAC NHAU trong mot space chia se co the tu chon trung
+        // device_id (DeviceInfo la chuoi client tu dat luc dang nhap).
+        var visibleRows = rows
+            .Where(r => !(r.OriginUserId == membership.UserID && r.OriginDeviceId == callerDeviceId))
+            .ToList();
+
+        var changes = await HydrateChangesAsync(membership.SpaceID, visibleRows, cancellationToken);
+
+        return OperationResult.Ok(data: new SyncPullResponse
+        {
+            IsSnapshot = false,
+            Changes = changes,
+            ResumeCursor = resumeCursor
+        });
+    }
+
+    /// <summary>
+    /// Ruling P5 (blocker): serialize mot DTO projection TUONG MINH — KHONG serialize thang cac
+    /// Prompt entity (do co navigation property hai chieu, vd Prompt.PromptTags[].Prompt tro
+    /// nguoc lai chinh no — System.Text.Json nem System.Text.Json.JsonException tren graph vong
+    /// nay). Ket qua duoc day len IBlobStorageService de luu vet/audit (BackupSnapshot), NHUNG
+    /// client KHONG doc snapshot qua duong do — no doc qua SnapshotJson tra thang trong response
+    /// (Expo gap G4: client di dong khong co credential Supabase de tu tai storage path).
+    /// </summary>
+    private async Task<OperationResult> BuildSnapshotFallbackAsync(SpaceMembership membership, CancellationToken cancellationToken)
+    {
+        var prompts = await _db.Prompts
+            .AsNoTracking()
+            .Include(p => p.Variables)
+            .Include(p => p.PromptTags).ThenInclude(pt => pt.Tag)
+            .Where(p => p.SpaceID == membership.SpaceID && !p.IsDeleted)
+            .ToListAsync(cancellationToken);
+
+        var latestLogId = await _db.SyncLog
+            .Where(s => s.SpaceID == membership.SpaceID)
+            .OrderByDescending(s => s.SyncLogID)
+            .Select(s => (long?)s.SyncLogID)
+            .FirstOrDefaultAsync(cancellationToken) ?? 0;
+
+        var snapshot = new SyncSnapshotDto
+        {
+            SpaceUuid = membership.SpaceUUID,
+            GeneratedAt = DateTime.UtcNow,
+            Prompts = [.. prompts.Select(p => new SyncSnapshotPromptDto
+            {
+                PromptId = p.PromptID,
+                Title = p.Title,
+                Content = p.Content,
+                Description = p.Description,
+                CategoryId = p.CategoryID,
+                Version = p.Version,
+                Tags = [.. p.PromptTags.Select(pt => pt.Tag?.Name ?? string.Empty)],
+                Variables = [.. p.Variables.Select(v => new PromptVariableResponse { VarKey = v.VarKey, Label = v.Label, DefaultValue = v.DefaultValue })]
+            })]
+        };
+
+        var json = JsonSerializer.Serialize(snapshot);
+        var path = $"snapshots/{membership.SpaceUUID}/{DateTime.UtcNow:yyyyMMddHHmmssfff}.json.gz";
+
+        try
+        {
+            var url = await _blobStorage!.UploadAsync(path, json, cancellationToken);
+
+            _db.BackupSnapshots.Add(new BackupSnapshot
+            {
+                SpaceID = membership.SpaceID,
+                TriggeredByUserID = membership.UserID,
+                SnapshotType = "sync_catchup",
+                StoragePath = url,
+                FileSizeBytes = json.Length,
+                PromptCount = prompts.Count
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Ruling P13: "blob storage unavailable/misconfigured" cung phai tra loi RO RANG,
+            // khong duoc 500 va khong duoc am tham tra ve mot ket qua rong/khong day du.
+            _db.ChangeTracker.Clear();
+            _logger.LogError(ex, "Khong the tao snapshot dong bo cho space {SpaceUuid}", membership.SpaceUUID);
+            return OperationResult.Fail("SyncUnavailable", "Khong the tao snapshot dong bo luc nay. Vui long thu lai sau.");
+        }
+
+        return OperationResult.Ok(data: new SyncPullResponse
+        {
+            IsSnapshot = true,
+            SnapshotJson = json,
+            ResumeCursor = latestLogId
+        });
+    }
+
+    /// <summary>
+    /// Carry-forward Task 2: trigger tren vault.prompts khong biet gi ve prompt_tags/
+    /// prompt_variables (bang join rieng), nen payload no ghi vao sync_log KHONG BAO GIO co
+    /// tags/variables — pull phai tu hydrate lai tu bang song. Ap dung cho CA dong
+    /// tags_variables-only (P12, do SyncService tu ghi) LAN dong noi dung binh thuong (do
+    /// trigger ghi) — ca hai deu thieu tags/variables trong PayloadJson.
+    /// </summary>
+    private async Task<List<SyncChangeItem>> HydrateChangesAsync(Guid spaceId, List<SyncLogEntry> rows, CancellationToken cancellationToken)
+    {
+        var promptIds = rows
+            .Where(r => r.EntityType == "prompt" && r.Operation != "delete")
+            .Select(r => r.EntityID)
+            .Distinct()
+            .ToList();
+
+        var livePrompts = promptIds.Count == 0
+            ? new Dictionary<Guid, Prompt>()
+            : await _db.Prompts
+                .AsNoTracking()
+                .Include(p => p.PromptTags).ThenInclude(pt => pt.Tag)
+                .Include(p => p.Variables)
+                .Where(p => p.SpaceID == spaceId && promptIds.Contains(p.PromptID))
+                .ToDictionaryAsync(p => p.PromptID, cancellationToken);
+
+        var result = new List<SyncChangeItem>(rows.Count);
+
+        foreach (var row in rows)
+        {
+            var item = new SyncChangeItem
+            {
+                SyncLogId = row.SyncLogID,
+                EntityType = row.EntityType,
+                EntityId = row.EntityID,
+                Operation = row.Operation,
+                Version = row.Version
+            };
+
+            if (row.EntityType == "prompt" && row.Operation != "delete")
+            {
+                livePrompts.TryGetValue(row.EntityID, out var live);
+                var tags = live?.PromptTags.Select(pt => pt.Tag?.Name ?? string.Empty).ToList() ?? [];
+                var variables = live?.Variables
+                    .Select(v => new PromptVariableResponse { VarKey = v.VarKey, Label = v.Label, DefaultValue = v.DefaultValue })
+                    .ToList() ?? [];
+
+                JsonDocument? doc = null;
+                try
+                {
+                    if (!string.IsNullOrEmpty(row.PayloadJson))
+                        doc = JsonDocument.Parse(row.PayloadJson);
+                }
+                catch (JsonException)
+                {
+                    // Payload hong/khong doc duoc -> roi xuong nhanh live-fallback ben duoi thay
+                    // vi lam bung ca pull.
+                }
+
+                var isTagsVariablesKind = doc is not null
+                    && doc.RootElement.TryGetProperty("kind", out var kindEl)
+                    && kindEl.GetString() == "tags_variables";
+
+                item.TagsVariablesOnly = isTagsVariablesKind;
+
+                if (doc is null || isTagsVariablesKind)
+                {
+                    // Dong tags_variables-only (P12) hoac thieu/hong payload: title/content/...
+                    // lay tu BANG SONG (theo dinh nghia cua kind nay, cac truong do KHONG doi).
+                    item.Prompt = new SyncPromptChangePayload
+                    {
+                        Title = live?.Title ?? string.Empty,
+                        Content = live?.Content ?? string.Empty,
+                        Description = live?.Description,
+                        CategoryId = live?.CategoryID,
+                        IsDeleted = live?.IsDeleted ?? false,
+                        Tags = tags,
+                        Variables = variables
+                    };
+                }
+                else
+                {
+                    var root = doc.RootElement;
+                    item.Prompt = new SyncPromptChangePayload
+                    {
+                        Title = TryGetString(root, "title") ?? string.Empty,
+                        Content = TryGetString(root, "content") ?? string.Empty,
+                        Description = TryGetString(root, "description"),
+                        CategoryId = TryGetGuid(root, "category_id"),
+                        IsDeleted = root.TryGetProperty("is_deleted", out var isDel) && isDel.ValueKind == JsonValueKind.True,
+                        Tags = tags,
+                        Variables = variables
+                    };
+                }
+
+                doc?.Dispose();
+            }
+
+            result.Add(item);
+        }
+
+        return result;
+    }
+
+    private static string? TryGetString(JsonElement root, string propertyName)
+        => root.TryGetProperty(propertyName, out var el) && el.ValueKind != JsonValueKind.Null ? el.GetString() : null;
+
+    private static Guid? TryGetGuid(JsonElement root, string propertyName)
+        => root.TryGetProperty(propertyName, out var el) && el.ValueKind != JsonValueKind.Null ? el.GetGuid() : null;
 
     private async Task TouchDeviceAsync(Guid userId, string? deviceId, CancellationToken cancellationToken)
     {
@@ -164,7 +450,10 @@ public class SyncService : ISyncService
             Description = entry.Payload.Description,
             // Carry-forward: KHONG BAO GIO tin Version tu client tren insert — luon bat dau 1.
             Version = 1,
-            UpdatedDeviceId = deviceId
+            UpdatedDeviceId = deviceId,
+            // Carry-forward Task 3: nguon cho sync_log.origin_user_id qua trigger — xem
+            // Prompt.UpdatedByUserId.
+            UpdatedByUserId = membership.UserID
         };
         prompt.Variables = [.. (entry.Payload.Variables ?? []).Select(v => new PromptVariable
         {
@@ -236,6 +525,8 @@ public class SyncService : ISyncService
             prompt.CategoryID = refs.CategoryId;
         // Carry-forward: MOI write do push gay ra deu phai gan deviceId cua CHINH phien goi.
         prompt.UpdatedDeviceId = deviceId;
+        // Carry-forward Task 3: cung ly do — nguon cho sync_log.origin_user_id qua trigger.
+        prompt.UpdatedByUserId = membership.UserID;
 
         // Expo gap G12: field null = giu nguyen, [] tuong minh = xoa het — chi dung lai khi
         // client THAT SU gui truong nay.
@@ -272,7 +563,7 @@ public class SyncService : ISyncService
                 !variablesBefore.SequenceEqual(prompt.Variables.Select(VariableSignature).OrderBy(s => s));
 
             if (tagsActuallyChanged || variablesActuallyChanged)
-                AddTagVariableSyncLogEntry(membership.SpaceID, prompt, deviceId);
+                AddTagVariableSyncLogEntry(membership.SpaceID, prompt, deviceId, membership.UserID);
         }
 
         try
@@ -317,6 +608,8 @@ public class SyncService : ISyncService
 
         prompt.IsDeleted = true;
         prompt.UpdatedDeviceId = deviceId;
+        // Carry-forward Task 3: cung ly do — nguon cho sync_log.origin_user_id qua trigger.
+        prompt.UpdatedByUserId = membership.UserID;
 
         try
         {
@@ -581,7 +874,7 @@ public class SyncService : ISyncService
     /// tag da duoc luu nhung khong co sync_log tuong ung, thiet bi khac se khong bao gio thay
     /// thay doi do o lan pull ke tiep.
     /// </summary>
-    private void AddTagVariableSyncLogEntry(Guid spaceId, Prompt prompt, string? deviceId)
+    private void AddTagVariableSyncLogEntry(Guid spaceId, Prompt prompt, string? deviceId, Guid userId)
     {
         var payloadJson = System.Text.Json.JsonSerializer.Serialize(new
         {
@@ -599,6 +892,9 @@ public class SyncService : ISyncService
             Operation = "update",
             PayloadJson = payloadJson,
             OriginDeviceId = deviceId,
+            // Carry-forward Task 3: dong nay duoc app tu ghi (khong qua trigger) nen gan
+            // OriginUserId truc tiep tu membership.UserID cua chinh phien push.
+            OriginUserId = userId,
             Version = prompt.Version
         });
     }

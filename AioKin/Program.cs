@@ -17,6 +17,7 @@ using AioKin.Services.Auth.StaffManagement;
 using AioKin.Services.Auth.Token;
 using AioKin.Services.Auth.User;
 using AioKin.Services.Common.Cache;
+using AioKin.Services.Common.Storage;
 using AioKin.Services.Content;
 using AioKin.Services.Family;
 using AioKin.Services.Vault;
@@ -235,6 +236,22 @@ builder.Services.AddScoped<ISpaceContext, SpaceContext>();
 builder.Services.AddScoped<ISpaceService, SpaceService>();
 builder.Services.AddScoped<IPromptBrowseService, PromptBrowseService>();
 builder.Services.AddScoped<ISyncService, SyncService>();
+
+// IBlobStorageService la OPTIONAL (xem SyncService.PullAsync, ruling P13): chi dang ky khi co
+// Storage:BaseUrl cau hinh — cung "skip gracefully khi thieu" nhu IEmailService/BrevoEmailService
+// o tren. Khong dang ky thi DI tra null cho tham so optional cua SyncService, va pull rot vao
+// nhanh retention-exceeded-nhung-khong-co-blob-storage (tra loi SyncUnavailable ro rang thay vi
+// 500 hay im lang tra ket qua rong).
+var storageBaseUrl = config["Storage:BaseUrl"];
+if (!string.IsNullOrWhiteSpace(storageBaseUrl))
+{
+    builder.Services.AddHttpClient<IBlobStorageService, SupabaseStorageService>(http =>
+    {
+        http.BaseAddress = new Uri(storageBaseUrl.TrimEnd('/') + "/");
+        http.DefaultRequestHeaders.Add("apikey", config["Storage:ServiceKey"]);
+        http.Timeout = TimeSpan.FromSeconds(30);
+    });
+}
 
 // ─── Xac thuc ─────────────────────────────────────────────────────────────────
 

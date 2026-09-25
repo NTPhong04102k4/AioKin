@@ -61,6 +61,17 @@ public class Prompt
     [MaxLength(100)]
     public string? UpdatedDeviceId { get; set; }
 
+    /// <summary>
+    /// Carry-forward Task 3 (progress.md): nguoi (khong chi thiet bi) THAT SU tao ra ban ghi
+    /// sync_log gan nhat cho dong nay — origin_device_id mot minh la khong du de pull suppress
+    /// echo an toan, vi DeviceInfo la chuoi client tu chon (2 THANH VIEN KHAC NHAU trong cung
+    /// mot space chia se co the vo tinh/co y trung device_id). SyncService gan cot nay o CUNG
+    /// cho voi UpdatedDeviceId (PushInsertAsync/ApplyUpdateOrConflictAsync/PushDeleteAsync), va
+    /// trigger sync.fn_prompts_write_log lay no vao sync_log.origin_user_id (xem migration
+    /// AddSyncLogOriginUser). Suppress dung tren CAP (origin_user_id, origin_device_id).
+    /// </summary>
+    public Guid? UpdatedByUserId { get; set; }
+
     public ICollection<PromptTag> PromptTags { get; set; } = [];
     public ICollection<PromptVariable> Variables { get; set; } = [];
 }
