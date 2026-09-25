@@ -20,6 +20,7 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
     public DbSet<Family> Families => Set<Family>();
     public DbSet<FamilyMember> FamilyMembers => Set<FamilyMember>();
     public DbSet<FamilyInvite> FamilyInvites => Set<FamilyInvite>();
+    public DbSet<DeviceCredential> DeviceCredentials => Set<DeviceCredential>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -68,6 +69,20 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
                 .WithMany()
                 .HasForeignKey(s => s.LocationID)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<DeviceCredential>(entity =>
+        {
+            // Mot thiet bi mot credential moi user — dang ky lai (doi key, cai lai app)
+            // phai la UPDATE, khong phai insert them dong. Index unique nay da phu ca
+            // truy van theo UserID (la cot dau cua composite index) nen khong can them
+            // mot index rieng cho UserID.
+            entity.HasIndex(c => new { c.UserID, c.DeviceId }).IsUnique();
+
+            entity.HasOne<AioKin.Data.Entities.Security.User>()
+                .WithMany()
+                .HasForeignKey(c => c.UserID)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Role>(entity => entity.HasIndex(r => r.RoleName).IsUnique());
