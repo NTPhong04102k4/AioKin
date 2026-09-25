@@ -393,13 +393,16 @@ public class AuthController : ControllerBase
         // giua, ca hai token deu con song.
         await _refreshTokenService.RevokeAsync(model.RefreshToken);
 
-        // Uu tien thiet bi client gui kem request refresh; client cu/native thuong khong gui
-        // lai deviceId luc refresh, nen roi ve thiet bi da luu trong payload tu luc dang nhap
-        // thay vi Resolve() sinh mot unknown-<guid> MOI moi lan refresh — sinh moi se lam
-        // danh sach phien trung lap them mot thiet bi "ma" cho cung mot may (Expo gap G7).
-        var deviceId = string.IsNullOrWhiteSpace(model.DeviceId) ? payloadDeviceId : model.DeviceId;
-        var deviceName = string.IsNullOrWhiteSpace(model.DeviceName) ? payloadDeviceName : model.DeviceName;
-        var platform = string.IsNullOrWhiteSpace(model.Platform) ? payloadPlatform : model.Platform;
+        // Uu tien thiet bi da luu trong PAYLOAD (tu luc dang nhap/refresh truoc), chi roi ve
+        // truong client gui kem request khi payload khong co: neu uu tien request, ke dang giu
+        // refresh token cua thiet bi A co the tu xung minh la thiet bi B (gui deviceId cua B
+        // trong body) va lam token moi cuop lay dinh danh cua B — lan RevokeForDeviceAsync/
+        // RevokeAllForDeviceAsync ke tiep tren "thiet bi B" se giet nham phien that cua B.
+        // Payload-first cung tranh sinh unknown-<guid> MOI moi lan refresh cho client cu/native
+        // khong gui lai deviceId (Expo gap G7).
+        var deviceId = string.IsNullOrWhiteSpace(payloadDeviceId) ? model.DeviceId : payloadDeviceId;
+        var deviceName = string.IsNullOrWhiteSpace(payloadDeviceName) ? model.DeviceName : payloadDeviceName;
+        var platform = string.IsNullOrWhiteSpace(payloadPlatform) ? model.Platform : payloadPlatform;
         var device = DeviceInfo.Resolve(deviceId, deviceName, platform);
 
         // Bo access session cu cua chinh thiet bi nay truoc khi cap cai moi — neu khong no
@@ -441,18 +444,31 @@ public class AuthController : ControllerBase
         });
     }
 
-    /// <summary>Dang xuat: thu hoi access token va (neu co) refresh token cua thiet bi nay.</summary>
+    /// <summary>
+    /// Dang xuat: thu hoi access token cua request nay va refresh token cua CUNG thiet bi do.
+    /// Logout phai dong nghia voi DELETE /account/sessions/{id} cho chinh phien nay — client
+    /// bo trong refreshToken (vd khong con giu trong bo nho) khong duoc phep de refresh token
+    /// cua thiet bi song sot, vi khong thi "dang xuat" tren UI van con dang nhap duoc lai bang
+    /// refresh token cu.
+    /// </summary>
     [HttpPost("logout")]
     [Authorize]
     public async Task<IActionResult> Logout([FromBody] LogoutRequest? request = null)
     {
-        // Claim session_token gio la hash (P11), khong con raw token — revoke thang bang hash.
+        // Claim session_token gio la hash (P11), khong con raw token — doc session truoc de
+        // biet DeviceId (can cho nhanh fallback ben duoi) roi moi revoke thang bang hash.
         var sessionHash = User.GetSessionToken();
+        AccessTokenSession? session = null;
         if (!string.IsNullOrEmpty(sessionHash))
+        {
+            session = await _accessTokenService.GetByHashAsync(sessionHash);
             await _accessTokenService.RevokeByHashAsync(sessionHash);
+        }
 
         if (!string.IsNullOrEmpty(request?.RefreshToken))
             await _refreshTokenService.RevokeAsync(request.RefreshToken);
+        else if (session?.DeviceId is { } deviceId)
+            await _refreshTokenService.RevokeAllForDeviceAsync(session.Subject, deviceId);
 
         return Ok(OperationResult.Ok("Dang xuat thanh cong."));
     }

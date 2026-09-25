@@ -18,6 +18,13 @@ public interface IAccessTokenService
     /// <summary>Tra ve session neu token con hop le, null neu khong ton tai hoac het han.</summary>
     Task<AccessTokenSession?> ValidateAsync(string token);
 
+    /// <summary>
+    /// Doc session bang hash (khong phai raw token), KHONG thu hoi — dung khi Logout can biet
+    /// DeviceId cua phien hien tai (tu claim session_token da la hash) truoc khi quyet dinh co
+    /// phai thu hoi ca refresh token cua thiet bi do hay khong.
+    /// </summary>
+    Task<AccessTokenSession?> GetByHashAsync(string hash);
+
     /// <summary>Thu hoi dung mot access token — dung khi logout.</summary>
     Task RevokeAsync(string token);
 

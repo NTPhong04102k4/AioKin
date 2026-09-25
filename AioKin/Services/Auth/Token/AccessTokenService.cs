@@ -129,6 +129,9 @@ public class AccessTokenService : IAccessTokenService
     public Task<AccessTokenSession?> ValidateAsync(string token)
         => _redis.GetAsync<AccessTokenSession>(RedisKeys.AccessSession(TokenHash.Sha256Hex(token)));
 
+    public Task<AccessTokenSession?> GetByHashAsync(string hash)
+        => _redis.GetAsync<AccessTokenSession>(RedisKeys.AccessSession(hash));
+
     public async Task RevokeAsync(string token)
         => await RevokeByHashAsync(TokenHash.Sha256Hex(token));
 
