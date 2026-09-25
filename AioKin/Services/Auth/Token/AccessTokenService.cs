@@ -66,7 +66,17 @@ public class AccessTokenService : IAccessTokenService
         var hash = HashToken(token);
         var ttl = TimeSpan.FromSeconds(AccessTokenLifetimeSeconds);
 
-        await _redis.SetAsync(RedisKeys.AccessSession(hash), session, ttl);
+        var saved = await _redis.SetAsync(RedisKeys.AccessSession(hash), session, ttl);
+        if (!saved)
+        {
+            // Cung pattern voi OtpService/TemporaryPasswordService: khong duoc tra ve token
+            // "thanh cong" ma phia sau khong con session nao trong Redis — token do se 401
+            // ngay khi dung, gay nham lan hon la bao loi luon tai day.
+            _logger.LogError("Failed to persist access session to Redis for subject={Subject}, kind={Kind}",
+                session.Subject, session.Kind);
+            throw new InvalidOperationException("Khong tao duoc access token. Vui long thu lai.");
+        }
+
         await TrackSessionAsync(session.Subject, hash, ttl);
 
         _logger.LogInformation("Access token issued for subject={Subject}, kind={Kind}", session.Subject, session.Kind);
@@ -98,7 +108,10 @@ public class AccessTokenService : IAccessTokenService
 
     public async Task RevokeAsync(string token)
     {
-        await _redis.DeleteAsync(RedisKeys.AccessSession(HashToken(token)));
+        var deleted = await _redis.DeleteAsync(RedisKeys.AccessSession(HashToken(token)));
+        if (!deleted)
+            _logger.LogWarning("Access session key not found on revoke (already expired or revoked)");
+
         _logger.LogInformation("Access token revoked");
     }
 
@@ -108,7 +121,10 @@ public class AccessTokenService : IAccessTokenService
         var existing = await _redis.GetStringAsync(key) ?? string.Empty;
 
         foreach (var hash in existing.Split(SessionSeparator, StringSplitOptions.RemoveEmptyEntries))
-            await _redis.DeleteAsync(RedisKeys.AccessSession(hash));
+        {
+            if (!await _redis.DeleteAsync(RedisKeys.AccessSession(hash)))
+                _logger.LogWarning("Access session key not found while revoking all for subject={Subject}", subject);
+        }
 
         await _redis.DeleteAsync(key);
         _logger.LogInformation("All access sessions revoked for subject={Subject}", subject);
