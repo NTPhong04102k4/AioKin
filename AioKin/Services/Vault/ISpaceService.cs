@@ -22,4 +22,18 @@ public interface ISpaceService
 
     /// <summary>Moi space nguoi goi thuoc ve: personal (tu tao neu chua co) + family + team.</summary>
     Task<IReadOnlyList<SpaceResponse>> GetMineAsync(Guid callerUserUuid, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Danh sach thanh vien cua Team. Bat ky thanh vien nao (Owner/Admin/Member) deu xem duoc —
+    /// khong can CanManage, chi can resolve duoc tu cach thanh vien. Danh tinh nguoi goi LUON
+    /// lay tu token qua ISpaceContext, giong AddMemberAsync (D1) — khong nhan callerUserUuid.
+    /// </summary>
+    Task<OperationResult> ListMembersAsync(Guid spaceUuid, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Xoa mot thanh vien khoi Team. Tu xoa chinh minh ("roi team") luon duoc phep bat ke
+    /// CanManage; xoa nguoi khac can CanManage (Owner/Admin cua chinh team nay). Danh tinh
+    /// nguoi goi LUON lay tu token qua ISpaceContext (D1), khong nhan callerUserUuid.
+    /// </summary>
+    Task<OperationResult> RemoveMemberAsync(Guid spaceUuid, Guid targetUserUuid, CancellationToken cancellationToken = default);
 }

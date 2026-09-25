@@ -111,6 +111,73 @@ public class SpaceService : ISpaceService
             .OrderByDescending(s => s.CreatedDate)
             .ToListAsync(cancellationToken);
 
-        return [.. owned.Select(s => SpaceResponse.From(s, canManage: s.OwnerUserID == userId))];
+        // Ruling D5: CanManage phai dan xuat GIONG HET cach SpaceContext dan xuat (Owner HOAC
+        // Admin cua Team, HOAC dong-chu-ho gia dinh qua IFamilyContext) — KHONG duoc tu suy dien
+        // rieng "nguoi goi la owner" (do la bug ban dau cua brief). Goi lai ISpaceContext cho
+        // tung space thay vi lap lai logic, de khong bao gio lech voi SpaceContext.ResolveAsync.
+        var result = new List<SpaceResponse>(owned.Count);
+        foreach (var space in owned)
+        {
+            var membership = await _spaceContext.ResolveAsync(space.SpaceUUID, cancellationToken);
+            result.Add(SpaceResponse.From(space, canManage: membership?.CanManage ?? false));
+        }
+
+        return result;
+    }
+
+    public async Task<OperationResult> ListMembersAsync(Guid spaceUuid, CancellationToken cancellationToken = default)
+    {
+        var space = await _db.Spaces.FirstOrDefaultAsync(s => s.SpaceUUID == spaceUuid && s.SpaceType == SpaceType.Team, cancellationToken);
+        if (space is null)
+            return OperationResult.Fail("NotFound", "Khong tim thay team.");
+
+        // Bat ky thanh vien nao (Owner/Admin/Member) deu xem duoc danh sach - chi can resolve
+        // duoc tu cach thanh vien, KHONG can CanManage (khac AddMemberAsync/RemoveMemberAsync).
+        var callerMembership = await _spaceContext.ResolveAsync(spaceUuid, cancellationToken);
+        if (callerMembership is null)
+            return OperationResult.Fail("Forbidden", "Ban khong phai thanh vien cua team nay.");
+
+        var members = await _db.SpaceMembers
+            .AsNoTracking()
+            .Where(m => m.SpaceID == space.SpaceID)
+            .Include(m => m.User)
+            .OrderBy(m => m.JoinedDate)
+            .Select(m => SpaceMemberResponse.From(m, m.User!))
+            .ToListAsync(cancellationToken);
+
+        return OperationResult.Ok(data: members);
+    }
+
+    public async Task<OperationResult> RemoveMemberAsync(Guid spaceUuid, Guid targetUserUuid, CancellationToken cancellationToken = default)
+    {
+        var space = await _db.Spaces.FirstOrDefaultAsync(s => s.SpaceUUID == spaceUuid && s.SpaceType == SpaceType.Team, cancellationToken);
+        if (space is null)
+            return OperationResult.Fail("NotFound", "Khong tim thay team.");
+
+        // Danh tinh nguoi goi LUON lay tu token qua ISpaceContext, giong AddMemberAsync (D1).
+        var callerMembership = await _spaceContext.ResolveAsync(spaceUuid, cancellationToken);
+        if (callerMembership is null)
+            return OperationResult.Fail("Forbidden", "Ban khong phai thanh vien cua team nay.");
+
+        // Expo gap G3: tu xoa chinh minh ("roi team") luon duoc phep bat ke CanManage. Xoa
+        // nguoi khac thi can CanManage (Owner/Admin) - khong co pattern "leave family" san co
+        // trong FamiliesController/FamilyService de theo, nen dung kiem tra don gian nhat o day.
+        var isSelfLeave = callerMembership.UserUUID == targetUserUuid;
+        if (!isSelfLeave && !callerMembership.CanManage)
+            return OperationResult.Fail("Forbidden", "Ban khong co quyen xoa thanh vien nay.");
+
+        var target = await _db.Users.FirstOrDefaultAsync(u => u.UserUUID == targetUserUuid, cancellationToken);
+        if (target is null)
+            return OperationResult.Fail("UserNotFound", "Khong tim thay nguoi dung.");
+
+        var membership = await _db.SpaceMembers.FirstOrDefaultAsync(
+            m => m.SpaceID == space.SpaceID && m.UserID == target.UserID, cancellationToken);
+        if (membership is null)
+            return OperationResult.Fail("NotFound", "Nguoi nay khong o trong team.");
+
+        _db.SpaceMembers.Remove(membership);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return OperationResult.Ok("Da xoa thanh vien.");
     }
 }
