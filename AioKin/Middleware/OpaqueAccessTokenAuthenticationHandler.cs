@@ -52,11 +52,14 @@ public class OpaqueAccessTokenAuthenticationHandler : AuthenticationHandler<Auth
 
     private static List<Claim> BuildClaims(AccessTokenSession session, string rawToken)
     {
+        // Bam truoc khi dua vao ClaimsPrincipal: raw token khong con nam trong HttpContext.User
+        // duoi bat ky hinh thuc nao — Logout/GetSessions doi chieu bang hash, dung nhu key
+        // Redis (auth:session:{hash}).
         var claims = new List<Claim>
         {
             new(ClaimTypes.Role, session.Role),
             new(AioKinClaims.Username, session.Username),
-            new(AioKinClaims.SessionToken, rawToken)
+            new(AioKinClaims.SessionToken, TokenHash.Sha256Hex(rawToken))
         };
 
         if (session.Kind == AccessTokenSubjectKind.Customer)

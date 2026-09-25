@@ -97,6 +97,33 @@ public class AccountController : ControllerBase
         return Ok(OperationResult.Ok("Doi mat khau thanh cong. Vui long dang nhap lai tren cac thiet bi khac."));
     }
 
+    /// <summary>Danh sach thiet bi dang dang nhap cua tai khoan nay.</summary>
+    [HttpGet("sessions")]
+    public async Task<IActionResult> GetSessions()
+    {
+        var userCode = User.GetUserCode();
+        if (string.IsNullOrEmpty(userCode))
+            return Unauthorized(OperationResult.Fail("Unauthorized", "Token thieu thong tin nguoi dung."));
+
+        // Claim session_token gio la hash (P11) — id cua chinh request nay suy truc tiep tu
+        // do, khong can bam lai.
+        var currentHash = User.GetSessionToken();
+        var currentId = string.IsNullOrEmpty(currentHash) ? null : TokenHash.PublicId(currentHash);
+
+        var sessions = await _accessTokenService.ListSessionsAsync(userCode);
+
+        var response = sessions.Select(s => new SessionResponse
+        {
+            Id = s.Id,
+            DeviceName = s.Session.DeviceName,
+            Platform = s.Session.Platform,
+            IssuedAtUnix = s.Session.IssuedAtUnix,
+            IsCurrent = s.Id == currentId
+        }).ToList();
+
+        return Ok(OperationResult.Ok(data: response));
+    }
+
     /// <summary>Gui email lien he toi bo phan ho tro tu tai khoan dang dang nhap.</summary>
     [HttpPost("me/contact")]
     [EnableRateLimiting("auth")]

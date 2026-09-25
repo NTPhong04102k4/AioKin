@@ -449,9 +449,10 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Logout([FromBody] LogoutRequest? request = null)
     {
-        var sessionToken = User.GetSessionToken();
-        if (!string.IsNullOrEmpty(sessionToken))
-            await _accessTokenService.RevokeAsync(sessionToken);
+        // Claim session_token gio la hash (P11), khong con raw token — revoke thang bang hash.
+        var sessionHash = User.GetSessionToken();
+        if (!string.IsNullOrEmpty(sessionHash))
+            await _accessTokenService.RevokeByHashAsync(sessionHash);
 
         if (!string.IsNullOrEmpty(request?.RefreshToken))
             await _refreshTokenService.RevokeAsync(request.RefreshToken);

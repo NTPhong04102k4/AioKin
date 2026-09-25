@@ -15,6 +15,7 @@ public static class UserMapper
     public static LoginResponse ToLoginResponse(UserDb user) => new()
     {
         UserID = user.UserUUID,
+        UserCode = user.UserCode,
         FirstName = user.FirstName,
         LastName = user.LastName,
         FullName = user.FullName ?? $"{user.FirstName} {user.LastName}".Trim(),

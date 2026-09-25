@@ -4,6 +4,7 @@ namespace AioKin.Models.ViewModel.Auth.User;
 public class LoginResponse
 {
     public Guid UserID { get; set; }
+    public string UserCode { get; set; } = string.Empty;
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
     public string? FullName { get; set; }

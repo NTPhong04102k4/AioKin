@@ -19,9 +19,10 @@ public static class AioKinClaims
     /// <summary>StaffID cua tai khoan quan tri.</summary>
     public const string StaffId = "staff_id";
 
-    /// <summary>Access token goc (khong phai jti) — cho phep Logout revoke dung session nay
-    /// ma khong phai parse lai header Authorization.
-    /// Khong log claim nay (chua token that).</summary>
+    /// <summary>Hash (sha256) cua access token dang dung — cho phep Logout/GetSessions doi
+    /// chieu dung session nay ma khong phai parse lai header Authorization. KHONG con la
+    /// token goc: tu plan session-management, claim nay khong bao gio giu raw token nua,
+    /// nen an toan hon de log/luu tam so voi truoc.</summary>
     public const string SessionToken = "session_token";
 }
 

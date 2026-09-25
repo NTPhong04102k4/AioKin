@@ -112,8 +112,11 @@ public class AccessTokenService : IAccessTokenService
         => _redis.GetAsync<AccessTokenSession>(RedisKeys.AccessSession(TokenHash.Sha256Hex(token)));
 
     public async Task RevokeAsync(string token)
+        => await RevokeByHashAsync(TokenHash.Sha256Hex(token));
+
+    public async Task RevokeByHashAsync(string hash)
     {
-        var deleted = await _redis.DeleteAsync(RedisKeys.AccessSession(TokenHash.Sha256Hex(token)));
+        var deleted = await _redis.DeleteAsync(RedisKeys.AccessSession(hash));
         if (!deleted)
             _logger.LogWarning("Access session key not found on revoke (already expired or revoked)");
 
@@ -133,6 +136,33 @@ public class AccessTokenService : IAccessTokenService
 
         await _redis.DeleteAsync(key);
         _logger.LogInformation("All access sessions revoked for subject={Subject}", subject);
+    }
+
+    public async Task<IReadOnlyList<(string Id, AccessTokenSession Session)>> ListSessionsAsync(string subject)
+    {
+        var key = RedisKeys.UserAccessSessions(subject);
+        var existing = await _redis.GetStringAsync(key) ?? string.Empty;
+        var hashes = existing.Split(SessionSeparator, StringSplitOptions.RemoveEmptyEntries);
+
+        var result = new List<(string Id, AccessTokenSession Session)>();
+        var alive = new List<string>();
+
+        foreach (var hash in hashes)
+        {
+            var session = await _redis.GetAsync<AccessTokenSession>(RedisKeys.AccessSession(hash));
+            if (session is null)
+                continue; // session het han/da bi thu hoi noi khac — bo khoi danh sach theo doi luon (P10)
+
+            alive.Add(hash);
+            result.Add((TokenHash.PublicId(hash), session));
+        }
+
+        // Chi ghi lai Redis khi thuc su co hash chet can don — tranh ghi lai moi lan goi
+        // GET /account/sessions ma khong doi gi.
+        if (alive.Count != hashes.Length)
+            await _redis.SetStringAsync(key, string.Join(SessionSeparator, alive), TimeSpan.FromSeconds(AccessTokenLifetimeSeconds));
+
+        return result;
     }
 
     public async Task RevokeForDeviceAsync(string subject, string deviceId)

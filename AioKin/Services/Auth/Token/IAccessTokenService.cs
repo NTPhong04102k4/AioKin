@@ -21,8 +21,19 @@ public interface IAccessTokenService
     /// <summary>Thu hoi dung mot access token — dung khi logout.</summary>
     Task RevokeAsync(string token);
 
+    /// <summary>
+    /// Thu hoi dung mot access session bang hash (khong phai raw token) — dung khi claim
+    /// session_token trong HttpContext.User da la hash san (Logout), tranh phai giu raw
+    /// token trong ClaimsPrincipal.
+    /// </summary>
+    Task RevokeByHashAsync(string hash);
+
     /// <summary>Thu hoi moi access token dang song cua mot subject (UserCode hoac Username).</summary>
     Task RevokeAllForSubjectAsync(string subject);
+
+    /// <summary>Moi access session dang song cua mot subject, kem id cong khai (12 ky tu dau cua hash).
+    /// Nhan tien don cac hash da chet (session het han/bi thu hoi noi khac) khoi danh sach theo doi.</summary>
+    Task<IReadOnlyList<(string Id, AccessTokenSession Session)>> ListSessionsAsync(string subject);
 
     /// <summary>
     /// Thu hoi cac access session dang song cua mot subject PHAT TU mot thiet bi cu the —
