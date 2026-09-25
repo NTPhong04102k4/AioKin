@@ -73,8 +73,7 @@ public class AdminAuthService : IAdminAuthService
             Username = staff.Username,
             Role = roleName,
             Token = await _accessTokenService.CreateForStaffAsync(staff, roleName, device),
-            RefreshToken = await _refreshTokenService.GenerateAsync(
-                staff.Username, roleName, device.DeviceId, device.DeviceName, device.Platform),
+            RefreshToken = await _refreshTokenService.GenerateAsync(staff.Username, roleName, device),
             ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds
         };
     }

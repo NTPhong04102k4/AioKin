@@ -135,8 +135,7 @@ public class AuthController : ControllerBase
         return Ok(new TokenResponse
         {
             AccessToken = await _accessTokenService.CreateForCustomerAsync(user, device),
-            RefreshToken = await _refreshTokenService.GenerateAsync(
-                user.UserCode, Roles.CUSTOMER, device.DeviceId, device.DeviceName, device.Platform),
+            RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER, device),
             ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             TokenType = "Bearer",
             Scope = Roles.CUSTOMER
@@ -230,8 +229,7 @@ public class AuthController : ControllerBase
 
         var device = DeviceInfo.Resolve(model.DeviceId, model.DeviceName, model.Platform);
         var accessToken = await _accessTokenService.CreateForCustomerAsync(createdUser, device);
-        var refreshToken = await _refreshTokenService.GenerateAsync(
-            createdUser.UserCode, Roles.CUSTOMER, device.DeviceId, device.DeviceName, device.Platform);
+        var refreshToken = await _refreshTokenService.GenerateAsync(createdUser.UserCode, Roles.CUSTOMER, device);
 
         // Email chao mung khong duoc lam hong dang ky — gui that bai thi chi ghi log.
         if (createdUser.Email is not null)
@@ -436,8 +434,7 @@ public class AuthController : ControllerBase
         return Ok(new TokenResponse
         {
             AccessToken = accessToken,
-            RefreshToken = await _refreshTokenService.GenerateAsync(
-                subject, role, device.DeviceId, device.DeviceName, device.Platform),
+            RefreshToken = await _refreshTokenService.GenerateAsync(subject, role, device),
             ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             TokenType = "Bearer",
             Scope = role

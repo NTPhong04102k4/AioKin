@@ -1,3 +1,5 @@
+using AioKin.Services.Auth.Token;
+
 namespace AioKin.Services.Auth.RefreshToken;
 
 /// <summary>
@@ -7,10 +9,11 @@ namespace AioKin.Services.Auth.RefreshToken;
 public interface IRefreshTokenService
 {
     /// <summary>
-    /// Tao token moi va luu vao Redis. <paramref name="deviceId"/>/<paramref name="deviceName"/>/
-    /// <paramref name="platform"/> co the null (client cu chua gui hoac duong dang nhap khong doc duoc thiet bi).
+    /// Tao token moi va luu vao Redis. <paramref name="device"/> co the DeviceInfo.Unknown
+    /// (client cu chua gui hoac duong dang nhap khong doc duoc thiet bi) — cung dang tham so
+    /// voi IAccessTokenService.CreateFor*Async de hai ben nhat quan.
     /// </summary>
-    Task<string> GenerateAsync(string subject, string role, string? deviceId, string? deviceName, string? platform);
+    Task<string> GenerateAsync(string subject, string role, DeviceInfo device);
 
     /// <summary>Xac thuc. Null neu het han hoac khong ton tai.</summary>
     Task<RefreshTokenPayload?> ValidateAsync(string token);

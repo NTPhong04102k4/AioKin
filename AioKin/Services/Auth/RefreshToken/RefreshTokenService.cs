@@ -1,4 +1,5 @@
 using AioKin.Common;
+using AioKin.Services.Auth.Token;
 using AioKin.Services.Common.Cache;
 
 namespace AioKin.Services.Auth.RefreshToken;
@@ -30,7 +31,7 @@ public class RefreshTokenService : IRefreshTokenService
         return TimeSpan.FromDays(days);
     }
 
-    public async Task<string> GenerateAsync(string subject, string role, string? deviceId, string? deviceName, string? platform)
+    public async Task<string> GenerateAsync(string subject, string role, DeviceInfo device)
     {
         // 64 byte ngau nhien, base64url khong padding — an toan khi dat trong URL/header.
         var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(64))
@@ -42,20 +43,22 @@ public class RefreshTokenService : IRefreshTokenService
         var ttl = ResolveTtl();
 
         var saved = await _redis.SetAsync(
-            RedisKeys.RefreshToken(hash), new RefreshTokenPayload(subject, role, deviceId, deviceName, platform), ttl);
+            RedisKeys.RefreshToken(hash),
+            new RefreshTokenPayload(subject, role, device.DeviceId, device.DeviceName, device.Platform),
+            ttl);
         if (!saved)
         {
             // Cung pattern voi AccessTokenService.IssueAsync: khong duoc tra ve token
             // "thanh cong" ma phia sau khong con session nao trong Redis — token do se
             // that bai ngay khi dung, gay nham lan hon la bao loi luon tai day.
             _logger.LogError("Failed to persist refresh token to Redis for subject={Subject}, device={DeviceId}",
-                subject, deviceId ?? "unknown");
+                subject, device.DeviceId ?? "unknown");
             throw new InvalidOperationException("Khong tao duoc refresh token. Vui long thu lai.");
         }
 
         await TrackTokenAsync(subject, hash, ttl);
 
-        _logger.LogInformation("Refresh token generated for subject={Subject}, device={DeviceId}", subject, deviceId ?? "unknown");
+        _logger.LogInformation("Refresh token generated for subject={Subject}, device={DeviceId}", subject, device.DeviceId ?? "unknown");
         return token;
     }
 
