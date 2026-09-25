@@ -77,10 +77,17 @@ public class MemoryCacheRedisService : IRedisService
         return Task.FromResult(value);
     }
 
+    /// <summary>
+    /// P5: phai tra ve dung "key co ton tai va da bi xoa hay khong", giong RedisService/
+    /// UpstashRedisRestService — khong duoc luon tra true. BiometricAuthService.VerifyAsync
+    /// dung gia tri nay de dam bao challenge chi duoc tieu thu boi DUNG MOT request khi hai
+    /// request verify chay song song tren cung mot challengeId.
+    /// </summary>
     public Task<bool> DeleteAsync(string key)
     {
+        var existed = _cache.TryGetValue(key, out _);
         _cache.Remove(key);
-        return Task.FromResult(true);
+        return Task.FromResult(existed);
     }
 
     public Task<long> DeleteByPrefixAsync(string keyPrefix)

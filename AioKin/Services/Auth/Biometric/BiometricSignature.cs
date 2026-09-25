@@ -52,7 +52,7 @@ public static class BiometricSignature
     /// DER (P-384, P-521, ...). Phai kiem tra rieng OID/ten duong cong sau khi import,
     /// khong thi mot key P-384 hop le van co the "verify" thanh cong voi hash sai muc dich.
     /// </summary>
-    private static bool IsValidP256PublicKey(ECDsa ecdsa)
+    internal static bool IsValidP256PublicKey(ECDsa ecdsa)
     {
         try
         {

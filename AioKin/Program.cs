@@ -6,6 +6,7 @@ using AioKin.Middleware;
 using AioKin.Models.InputModel.Auth.User;
 using AioKin.Setup;
 using AioKin.Services.Auth.Admin;
+using AioKin.Services.Auth.Biometric;
 using AioKin.Services.Auth.Email;
 using AioKin.Services.Auth.OAuth;
 using AioKin.Services.Auth.Otp;
@@ -218,6 +219,7 @@ builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
 builder.Services.AddScoped<IStaffManagementService, StaffManagementService>();
 builder.Services.AddScoped<IOAuthService, OAuthService>();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
+builder.Services.AddScoped<IBiometricAuthService, BiometricAuthService>();
 
 // ─── Service tang Content ─────────────────────────────────────────────────────
 //

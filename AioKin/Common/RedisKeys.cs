@@ -20,6 +20,9 @@ public static class RedisKeys
     /// <summary>Tap hop hash cua access token dang song cua mot subject — dung de revoke tat ca.</summary>
     public static string UserAccessSessions(string subject) => $"auth:user_sessions:{subject}";
 
+    /// <summary>Challenge dang cho verify, dung 1 lan.</summary>
+    public static string BiometricChallenge(string challengeId) => $"auth:biometric_challenge:{challengeId}";
+
     // ─── OTP / TempPwd / Registration ────────────────────────────────────────
 
     /// <summary>OTP data cho email.</summary>
@@ -51,6 +54,9 @@ public static class RedisTtl
     public static readonly TimeSpan TempPassword = TimeSpan.FromMinutes(3);
     public static readonly TimeSpan Registration = TimeSpan.FromMinutes(15);
     public static readonly TimeSpan RefreshToken = TimeSpan.FromDays(7);
+
+    /// <summary>2 phut: du de nguoi dung xac thuc sinh trac, ngan de giam cua so tan cong.</summary>
+    public static readonly TimeSpan BiometricChallenge = TimeSpan.FromMinutes(2);
 
     /// <summary>
     /// Ngan co chu dich. Cache nay dung de tiet kiem mot lan JOIN, khong phai de giu lau —

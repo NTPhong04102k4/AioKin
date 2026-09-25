@@ -1,0 +1,232 @@
+using System.Security.Cryptography;
+using AioKin.Common;
+using AioKin.Data;
+using AioKin.Data.Entities.Security;
+using AioKin.Models.InputModel.Auth.Biometric;
+using AioKin.Models.InputModel.Auth.User;
+using AioKin.Models.ViewModel.Auth.Biometric;
+using AioKin.Models.ViewModel.Auth.User;
+using AioKin.Services.Auth.RefreshToken;
+using AioKin.Services.Auth.Token;
+using AioKin.Services.Auth.User;
+using AioKin.Services.Common.Cache;
+using Microsoft.EntityFrameworkCore;
+
+namespace AioKin.Services.Auth.Biometric;
+
+public class BiometricAuthService : IBiometricAuthService
+{
+    private readonly AioKinDbContext _db;
+    private readonly IUserService _userService;
+    private readonly IRedisService _redis;
+    private readonly IAccessTokenService _accessTokenService;
+    private readonly IRefreshTokenService _refreshTokenService;
+    private readonly ILogger<BiometricAuthService> _logger;
+
+    public BiometricAuthService(
+        AioKinDbContext db,
+        IUserService userService,
+        IRedisService redis,
+        IAccessTokenService accessTokenService,
+        IRefreshTokenService refreshTokenService,
+        ILogger<BiometricAuthService> logger)
+    {
+        _db = db;
+        _userService = userService;
+        _redis = redis;
+        _accessTokenService = accessTokenService;
+        _refreshTokenService = refreshTokenService;
+        _logger = logger;
+    }
+
+    public async Task<OperationResult> RegisterAsync(Guid userUuid, RegisterBiometricRequest request)
+    {
+        var user = await _userService.GetByUuidAsync(userUuid);
+        if (user is null)
+            return OperationResult.Fail("NotFound", "Khong tim thay nguoi dung.");
+
+        // P7: xac nhan day la mot public key P-256 that truoc khi luu — key sai dinh dang/sai
+        // duong cong khong duoc chap nhan tu luc dang ky, khong doi den luc verify moi phat hien.
+        if (!TryImportP256PublicKey(request.PublicKey, out var invalidKeyReason))
+            return OperationResult.Fail("InvalidPublicKey", invalidKeyReason);
+
+        var existing = await _db.DeviceCredentials
+            .FirstOrDefaultAsync(c => c.UserID == user.UserID && c.DeviceId == request.DeviceId);
+
+        if (existing is not null)
+        {
+            // Doi key (cai lai app, xoay key) — ghi de, khong tao dong moi, va mo lai neu
+            // truoc do da bi revoke.
+            existing.PublicKey = request.PublicKey;
+            existing.DeviceName = request.DeviceName;
+            existing.Platform = request.Platform;
+            existing.RevokedAt = null;
+        }
+        else
+        {
+            _db.DeviceCredentials.Add(new DeviceCredential
+            {
+                UserID = user.UserID,
+                DeviceId = request.DeviceId,
+                DeviceName = request.DeviceName,
+                Platform = request.Platform,
+                PublicKey = request.PublicKey
+            });
+        }
+
+        await _db.SaveChangesAsync();
+        _logger.LogInformation("Biometric credential registered for userCode={UserCode}, deviceId={DeviceId}", user.UserCode, request.DeviceId);
+        return OperationResult.Ok("Da dang ky dang nhap sinh trac cho thiet bi nay.");
+    }
+
+    public async Task<OperationResult> ChallengeAsync(BiometricChallengeRequest request)
+    {
+        var challengeId = Guid.NewGuid().ToString("N");
+        var nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+        // Luon luu va tra ve, KHONG kiem tra credential co ton tai o day: kiem tra som se
+        // lo (userCode, deviceId) nao dang co dang ky sinh trac qua response 200/khac.
+        var saved = await _redis.SetAsync(
+            RedisKeys.BiometricChallenge(challengeId),
+            new BiometricChallenge(request.UserCode, request.DeviceId, nonce),
+            RedisTtl.BiometricChallenge);
+
+        if (!saved)
+        {
+            // P22: khong duoc tra ve nonce "thanh cong" ma phia sau khong con gi trong Redis
+            // de VerifyAsync tim thay — fail closed, giong AccessTokenService.IssueAsync.
+            _logger.LogError("Failed to persist biometric challenge to Redis for deviceId={DeviceId}", request.DeviceId);
+            return OperationResult.Fail("InternalError", "Khong tao duoc challenge. Vui long thu lai.");
+        }
+
+        return OperationResult.Ok(data: new BiometricChallengeResponse { ChallengeId = challengeId, Nonce = nonce });
+    }
+
+    public async Task<OperationResult> VerifyAsync(BiometricVerifyRequest request)
+    {
+        var key = RedisKeys.BiometricChallenge(request.ChallengeId);
+        var challenge = await _redis.GetAsync<BiometricChallenge>(key);
+
+        // P5: xoa NGAY sau khi doc, va CHI tiep tuc neu THUC SU la request nay da xoa duoc
+        // key (DeleteAsync tra true chi khi con ton tai va vua bi xoa). Day la thu lam cho
+        // challenge dung mot lan mot cach nguyen tu o muc tung thao tac: neu hai request verify
+        // chay song song tren cung mot challengeId, ca hai deu doc duoc challenge, nhung chi
+        // DUY NHAT mot cuoc goi DeleteAsync tra ve true — cuoc goi con lai phai fail ngay ca
+        // khi no co chu ky dung, dong cua so replay song song.
+        var deleted = await _redis.DeleteAsync(key);
+
+        if (challenge is null || !deleted)
+            return Fail(null, "no_challenge");
+
+        var user = await _userService.GetByUserCodeAsync(challenge.UserCode);
+        if (user is null || !user.IsActive || user.IsLocked)
+            return Fail(challenge.DeviceId, "no_user");
+
+        var credential = await _db.DeviceCredentials
+            .FirstOrDefaultAsync(c => c.UserID == user.UserID && c.DeviceId == challenge.DeviceId && c.RevokedAt == null);
+        if (credential is null)
+            return Fail(challenge.DeviceId, "no_credential");
+
+        if (!BiometricSignature.Verify(credential.PublicKey, challenge.Nonce, request.Signature))
+            return Fail(challenge.DeviceId, "bad_signature");
+
+        credential.LastUsedDate = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        var device = new DeviceInfo(challenge.DeviceId, credential.DeviceName, credential.Platform);
+
+        // P10: thu hoi access session + refresh token con song cua CUNG thiet bi truoc khi
+        // phat cap moi — tranh 2 phien song song cho cung mot thiet bi (giong duong RefreshToken
+        // da lam, dong G7 cho ca duong sinh trac).
+        await _accessTokenService.RevokeForDeviceAsync(user.UserCode, challenge.DeviceId);
+        await _refreshTokenService.RevokeAllForDeviceAsync(user.UserCode, challenge.DeviceId);
+
+        _logger.LogInformation("Biometric login succeeded for userCode={UserCode}, deviceId={DeviceId}", user.UserCode, challenge.DeviceId);
+
+        return OperationResult.Ok("Dang nhap thanh cong.", new TokenResponse
+        {
+            AccessToken = await _accessTokenService.CreateForCustomerAsync(user, device),
+            RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER, device),
+            ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
+            TokenType = "Bearer",
+            Scope = Roles.CUSTOMER
+        });
+
+        // Mot diem loi duy nhat cho moi truong hop that bai (P16) — khong lo buoc nao trong so
+        // "challenge het han/da dung", "khong co user", "khong co credential", "chu ky sai" la
+        // nguyen nhan that qua response. P18: van ghi Warning noi bo (deviceId + loai loi ngan
+        // gon) de con dieu tra/chinh rate-limit sau nay — khong bao gio log key/nonce/chu ky.
+        OperationResult Fail(string? deviceId, string reason)
+        {
+            _logger.LogWarning("Biometric verify failed, deviceId={DeviceId}, reason={Reason}", deviceId ?? "unknown", reason);
+            return OperationResult.Fail("InvalidCredentials", "Khong dang nhap duoc bang sinh trac hoc.");
+        }
+    }
+
+    public async Task<OperationResult> RevokeAsync(Guid userUuid, string deviceId)
+    {
+        var user = await _userService.GetByUuidAsync(userUuid);
+        if (user is null)
+            return OperationResult.Fail("NotFound", "Khong tim thay nguoi dung.");
+
+        var credential = await _db.DeviceCredentials
+            .FirstOrDefaultAsync(c => c.UserID == user.UserID && c.DeviceId == deviceId && c.RevokedAt == null);
+
+        if (credential is null)
+            return OperationResult.Fail("NotFound", "Khong tim thay dang ky sinh trac cho thiet bi nay.");
+
+        RevokeCredential(credential);
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation("Biometric credential revoked for userCode={UserCode}, deviceId={DeviceId}", user.UserCode, deviceId);
+        return OperationResult.Ok("Da tat dang nhap sinh trac cho thiet bi nay.");
+    }
+
+    /// <summary>
+    /// Primitive dung chung cho moi duong revoke tung dong credential — RevokeAsync dung truc
+    /// tiep, va Task 5 (RevokeAllForUserAsync cho doi/dat lai mat khau) se lap qua danh sach
+    /// credential cua user roi goi lai chinh ham nay cho tung dong, khong viet lai logic revoke.
+    /// </summary>
+    private static void RevokeCredential(DeviceCredential credential)
+        => credential.RevokedAt = DateTime.UtcNow;
+
+    /// <summary>
+    /// P7: import SubjectPublicKeyInfo tu base64 va xac nhan la P-256 that, tai su dung logic
+    /// OID/ten duong cong cua BiometricSignature (internal static) thay vi lam lai. Tra ve
+    /// thong diep loi ro rang — day la nhanh dang ky (khong anonymous), khac VerifyAsync
+    /// (P16) noi moi that bai phai giong het nhau.
+    /// </summary>
+    private static bool TryImportP256PublicKey(string publicKeyBase64, out string reason)
+    {
+        byte[] keyBytes;
+        try
+        {
+            keyBytes = Convert.FromBase64String(publicKeyBase64);
+        }
+        catch (FormatException)
+        {
+            reason = "Public key khong dung dinh dang base64.";
+            return false;
+        }
+
+        try
+        {
+            using var ecdsa = ECDsa.Create();
+            ecdsa.ImportSubjectPublicKeyInfo(keyBytes, out _);
+
+            if (!BiometricSignature.IsValidP256PublicKey(ecdsa))
+            {
+                reason = "Public key phai la duong cong P-256 (SubjectPublicKeyInfo).";
+                return false;
+            }
+        }
+        catch (Exception ex) when (ex is CryptographicException or ArgumentException)
+        {
+            reason = "Public key khong hop le.";
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+}
