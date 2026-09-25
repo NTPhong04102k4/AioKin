@@ -185,20 +185,64 @@ public class BiometricAuthService : IBiometricAuthService
         // cung primitive VerifyAsync da dung o P10 — thu hoi ca access session lan refresh
         // token con song cua DUNG thiet bi nay, de "revoke" nghia la khoa han thiet bi do, khong
         // chi la tat loi tat sinh trac.
-        await _accessTokenService.RevokeForDeviceAsync(user.UserCode, deviceId);
-        await _refreshTokenService.RevokeAllForDeviceAsync(user.UserCode, deviceId);
+        await RevokeDeviceSessionsAsync(user.UserCode, deviceId);
 
         _logger.LogInformation("Biometric credential revoked for userCode={UserCode}, deviceId={DeviceId}", user.UserCode, deviceId);
         return OperationResult.Ok("Da tat dang nhap sinh trac cho thiet bi nay.");
     }
 
     /// <summary>
+    /// Task 5 (P20): doi mat khau/dat lai mat khau thu hoi TOAN BO credential sinh trac con
+    /// hieu luc cua user, khong chi mot thiet bi — mat khau bi lo thi moi thiet bi da dang ky
+    /// sinh trac deu phai dang ky lai tu dau. Danh dau RevokedAt cho tat ca truoc (mot lan
+    /// SaveChangesAsync), roi moi thu hoi phien song cua tung thiet bi — tranh N lan ghi DB
+    /// rieng le khi user co nhieu thiet bi.
+    /// </summary>
+    public async Task RevokeAllForUserAsync(string userCode)
+    {
+        var user = await _userService.GetByUserCodeAsync(userCode);
+        if (user is null)
+            return;
+
+        var credentials = await _db.DeviceCredentials
+            .Where(c => c.UserID == user.UserID && c.RevokedAt == null)
+            .ToListAsync();
+
+        // Khong co credential nao dang hieu luc — khong lam gi, va TUYET DOI khong nem loi:
+        // doi/dat lai mat khau van phai thanh cong binh thuong cho user chua tung dung sinh trac.
+        if (credentials.Count == 0)
+            return;
+
+        foreach (var credential in credentials)
+            RevokeCredential(credential);
+
+        await _db.SaveChangesAsync();
+
+        foreach (var credential in credentials)
+            await RevokeDeviceSessionsAsync(user.UserCode, credential.DeviceId);
+
+        _logger.LogInformation(
+            "All biometric credentials revoked for userCode={UserCode}, count={Count}", user.UserCode, credentials.Count);
+    }
+
+    /// <summary>
     /// Primitive dung chung cho moi duong revoke tung dong credential — RevokeAsync dung truc
-    /// tiep, va Task 5 (RevokeAllForUserAsync cho doi/dat lai mat khau) se lap qua danh sach
-    /// credential cua user roi goi lai chinh ham nay cho tung dong, khong viet lai logic revoke.
+    /// tiep, va RevokeAllForUserAsync (Task 5) lap qua danh sach credential cua user roi goi
+    /// lai chinh ham nay cho tung dong, khong viet lai logic revoke.
     /// </summary>
     private static void RevokeCredential(DeviceCredential credential)
         => credential.RevokedAt = DateTime.UtcNow;
+
+    /// <summary>
+    /// Thu hoi access session + refresh token con song cua mot thiet bi — dung chung giua
+    /// RevokeAsync (1 thiet bi) va RevokeAllForUserAsync (Task 5, moi thiet bi cua user), tranh
+    /// lap lai cung 2 dong goi 2 service.
+    /// </summary>
+    private async Task RevokeDeviceSessionsAsync(string userCode, string deviceId)
+    {
+        await _accessTokenService.RevokeForDeviceAsync(userCode, deviceId);
+        await _refreshTokenService.RevokeAllForDeviceAsync(userCode, deviceId);
+    }
 
     /// <summary>
     /// P7: import SubjectPublicKeyInfo tu base64 va xac nhan la P-256 that, tai su dung logic

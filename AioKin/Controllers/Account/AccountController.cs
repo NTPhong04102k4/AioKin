@@ -2,6 +2,7 @@ using AioKin.Common;
 using AioKin.Models.InputModel.Auth.User;
 using AioKin.Models.Transfers.ProfileUser;
 using AioKin.Models.ViewModel.Auth.User;
+using AioKin.Services.Auth.Biometric;
 using AioKin.Services.Auth.Email;
 using AioKin.Services.Auth.RefreshToken;
 using AioKin.Services.Auth.Token;
@@ -27,6 +28,7 @@ public class AccountController : ControllerBase
     private readonly IEmailService _emailService;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly IAccessTokenService _accessTokenService;
+    private readonly IBiometricAuthService _biometricAuthService;
     private readonly ILogger<AccountController> _logger;
 
     public AccountController(
@@ -34,12 +36,14 @@ public class AccountController : ControllerBase
         IEmailService emailService,
         IRefreshTokenService refreshTokenService,
         IAccessTokenService accessTokenService,
+        IBiometricAuthService biometricAuthService,
         ILogger<AccountController> logger)
     {
         _userService = userService;
         _emailService = emailService;
         _refreshTokenService = refreshTokenService;
         _accessTokenService = accessTokenService;
+        _biometricAuthService = biometricAuthService;
         _logger = logger;
     }
 
@@ -89,6 +93,10 @@ public class AccountController : ControllerBase
 
         await _refreshTokenService.RevokeAllAsync(user.UserCode);
         await _accessTokenService.RevokeAllForSubjectAsync(user.UserCode);
+
+        // P20: doi mat khau khi dang dang nhap cung phai thu hoi TOAN BO dang ky sinh trac
+        // cua user, giong duong ResetPassword — cung mot ly do "nghi ngo tai khoan bi lo".
+        await _biometricAuthService.RevokeAllForUserAsync(user.UserCode);
 
         if (user.Email is not null)
             await _emailService.SendPasswordChangedNoticeAsync(user.Email, user.Username);

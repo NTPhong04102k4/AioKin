@@ -5,6 +5,7 @@ using AioKin.Models.Transfers.ProfileUser;
 using AioKin.Models.ViewModel.Auth.User;
 using AioKin.Services.Auth.Email;
 using AioKin.Services.Auth.OAuth;
+using AioKin.Services.Auth.Biometric;
 using AioKin.Services.Auth.Otp;
 using AioKin.Services.Auth.PasswordUser;
 using AioKin.Services.Auth.RefreshToken;
@@ -46,6 +47,7 @@ public class AuthController : ControllerBase
     private readonly IRedisService _redis;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly IAccessTokenService _accessTokenService;
+    private readonly IBiometricAuthService _biometricAuthService;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
@@ -58,6 +60,7 @@ public class AuthController : ControllerBase
         IRedisService redis,
         IRefreshTokenService refreshTokenService,
         IAccessTokenService accessTokenService,
+        IBiometricAuthService biometricAuthService,
         ILogger<AuthController> logger)
     {
         _configuration = configuration;
@@ -69,6 +72,7 @@ public class AuthController : ControllerBase
         _redis = redis;
         _refreshTokenService = refreshTokenService;
         _accessTokenService = accessTokenService;
+        _biometricAuthService = biometricAuthService;
         _logger = logger;
     }
 
@@ -367,6 +371,11 @@ public class AuthController : ControllerBase
         // nghi ngo tai khoan bi lo.
         await _refreshTokenService.RevokeAllAsync(user.UserCode);
         await _accessTokenService.RevokeAllForSubjectAsync(user.UserCode);
+
+        // P20: dat lai mat khau cung phai thu hoi TOAN BO dang ky sinh trac cua user — mat
+        // khau bi lo (ly do dan den reset) thi ke chiem duoc no cung khong duoc giu lai duong
+        // dang nhap sinh trac da dang ky truoc do.
+        await _biometricAuthService.RevokeAllForUserAsync(user.UserCode);
 
         if (user.Email is not null)
             await _emailService.SendPasswordChangedNoticeAsync(user.Email, user.Username);

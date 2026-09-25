@@ -39,4 +39,13 @@ public interface IBiometricAuthService
     /// doi mat khau/reset mat khau) tai su dung sau nay — khong lam rieng logic revoke o day.
     /// </summary>
     Task<OperationResult> RevokeAsync(Guid userUuid, string deviceId);
+
+    /// <summary>
+    /// Task 5 (P20): doi mat khau/dat lai mat khau phai thu hoi TOAN BO credential sinh trac
+    /// con hieu luc cua user nay — khong chi mot thiet bi. Dung userCode (khong phai uuid) vi
+    /// AuthController.ResetPassword/AccountController.ChangePassword da co san User tu luc
+    /// xac thuc mat khau, khong can tra lai qua GetByUuidAsync. Khong co credential nao thi
+    /// khong lam gi (khong nem loi) — doi mat khau van phai thanh cong binh thuong.
+    /// </summary>
+    Task RevokeAllForUserAsync(string userCode);
 }
