@@ -176,6 +176,7 @@ public class AdminAuthService : IAdminAuthService
         // Moi phien cu phai chet theo mat khau cu, khong thi doi mat khau khong duoi duoc
         // ke dang giu refresh token.
         await _refreshTokenService.RevokeAllAsync(target.Username);
+        await _accessTokenService.RevokeAllForSubjectAsync(target.Username);
 
         _logger.LogInformation("Staff password updated: staffId={StaffId}, by={Caller}", staffId, callerUsername);
         return OperationResult.Ok("Doi mat khau thanh cong.");
@@ -226,6 +227,7 @@ public class AdminAuthService : IAdminAuthService
         await _db.SaveChangesAsync();
 
         await _refreshTokenService.RevokeAllAsync(target.Username);
+        await _accessTokenService.RevokeAllForSubjectAsync(target.Username);
 
         _logger.LogWarning("SuperAdmin password recovered for username={Username}", target.Username);
         return OperationResult.Ok("Da dat lai mat khau SuperAdmin. Vui long dang nhap lai.",

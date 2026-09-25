@@ -4,6 +4,7 @@ using AioKin.Models.Transfers.ProfileUser;
 using AioKin.Models.ViewModel.Auth.User;
 using AioKin.Services.Auth.Email;
 using AioKin.Services.Auth.RefreshToken;
+using AioKin.Services.Auth.Token;
 using AioKin.Services.Auth.User;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -25,17 +26,20 @@ public class AccountController : ControllerBase
     private readonly IUserService _userService;
     private readonly IEmailService _emailService;
     private readonly IRefreshTokenService _refreshTokenService;
+    private readonly IAccessTokenService _accessTokenService;
     private readonly ILogger<AccountController> _logger;
 
     public AccountController(
         IUserService userService,
         IEmailService emailService,
         IRefreshTokenService refreshTokenService,
+        IAccessTokenService accessTokenService,
         ILogger<AccountController> logger)
     {
         _userService = userService;
         _emailService = emailService;
         _refreshTokenService = refreshTokenService;
+        _accessTokenService = accessTokenService;
         _logger = logger;
     }
 
@@ -84,6 +88,7 @@ public class AccountController : ControllerBase
             return this.ToActionResult(OperationResult.Fail("InternalError", "Khong cap nhat duoc mat khau."));
 
         await _refreshTokenService.RevokeAllAsync(user.UserCode);
+        await _accessTokenService.RevokeAllForSubjectAsync(user.UserCode);
 
         if (user.Email is not null)
             await _emailService.SendPasswordChangedNoticeAsync(user.Email, user.Username);

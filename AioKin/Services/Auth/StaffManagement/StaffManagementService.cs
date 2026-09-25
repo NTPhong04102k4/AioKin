@@ -5,6 +5,7 @@ using AioKin.Models.InputModel.Auth.User;
 using AioKin.Models.ViewModel.Auth.Admin;
 using AioKin.Services.Auth.Admin;
 using AioKin.Services.Auth.RefreshToken;
+using AioKin.Services.Auth.Token;
 using Microsoft.EntityFrameworkCore;
 using StaffDb = AioKin.Data.Entities.Security.Staff;
 
@@ -15,17 +16,20 @@ public class StaffManagementService : IStaffManagementService
     private readonly AioKinDbContext _db;
     private readonly ISuperAdminGuardService _superAdminGuard;
     private readonly IRefreshTokenService _refreshTokenService;
+    private readonly IAccessTokenService _accessTokenService;
     private readonly ILogger<StaffManagementService> _logger;
 
     public StaffManagementService(
         AioKinDbContext db,
         ISuperAdminGuardService superAdminGuard,
         IRefreshTokenService refreshTokenService,
+        IAccessTokenService accessTokenService,
         ILogger<StaffManagementService> logger)
     {
         _db = db;
         _superAdminGuard = superAdminGuard;
         _refreshTokenService = refreshTokenService;
+        _accessTokenService = accessTokenService;
         _logger = logger;
     }
 
@@ -136,7 +140,10 @@ public class StaffManagementService : IStaffManagementService
         await _db.SaveChangesAsync();
 
         if (!model.IsActive)
+        {
             await _refreshTokenService.RevokeAllAsync(entity.Username);
+            await _accessTokenService.RevokeAllForSubjectAsync(entity.Username);
+        }
 
         _logger.LogInformation("Staff {StaffId} status set to {IsActive} by {Caller}", staffId, model.IsActive, callerUsername);
         return OperationResult.Ok(model.IsActive ? "Da mo khoa nhan vien." : "Da khoa nhan vien.");
@@ -158,6 +165,7 @@ public class StaffManagementService : IStaffManagementService
         await _db.SaveChangesAsync();
 
         await _refreshTokenService.RevokeAllAsync(entity.Username);
+        await _accessTokenService.RevokeAllForSubjectAsync(entity.Username);
 
         _logger.LogInformation("Staff {StaffId} deactivated by {Caller}", staffId, callerUsername);
         return OperationResult.Ok("Da vo hieu hoa nhan vien.");

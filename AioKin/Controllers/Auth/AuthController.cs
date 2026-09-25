@@ -363,6 +363,7 @@ public class AuthController : ControllerBase
         // Doi mat khau phai duoi moi phien cu — nguoi dung dat lai mat khau thuong la vi
         // nghi ngo tai khoan bi lo.
         await _refreshTokenService.RevokeAllAsync(user.UserCode);
+        await _accessTokenService.RevokeAllForSubjectAsync(user.UserCode);
 
         if (user.Email is not null)
             await _emailService.SendPasswordChangedNoticeAsync(user.Email, user.Username);
