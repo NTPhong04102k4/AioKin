@@ -17,6 +17,12 @@ public static class RedisKeys
     /// <summary>Tap hop refresh token cua mot user — dung de revoke tat ca.</summary>
     public static string UserRefreshTokens(string userCode) => $"auth:user_tokens:{userCode}";
 
+    /// <summary>Access token session (sau khi bam sha256) → AccessTokenSession JSON.</summary>
+    public static string AccessSession(string tokenHash) => $"auth:session:{tokenHash}";
+
+    /// <summary>Tap hop hash cua access token dang song cua mot subject — dung de revoke tat ca.</summary>
+    public static string UserAccessSessions(string subject) => $"auth:user_sessions:{subject}";
+
     // ─── OTP / TempPwd / Registration ────────────────────────────────────────
 
     /// <summary>OTP data cho email.</summary>
