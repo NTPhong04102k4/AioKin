@@ -18,20 +18,20 @@ public class OAuthService : IOAuthService
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IUserService _userService;
-    private readonly IJwtTokenService _tokenService;
+    private readonly IAccessTokenService _accessTokenService;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly ILogger<OAuthService> _logger;
 
     public OAuthService(
         IHttpClientFactory httpClientFactory,
         IUserService userService,
-        IJwtTokenService tokenService,
+        IAccessTokenService accessTokenService,
         IRefreshTokenService refreshTokenService,
         ILogger<OAuthService> logger)
     {
         _httpClientFactory = httpClientFactory;
         _userService = userService;
-        _tokenService = tokenService;
+        _accessTokenService = accessTokenService;
         _refreshTokenService = refreshTokenService;
         _logger = logger;
     }
@@ -210,9 +210,9 @@ public class OAuthService : IOAuthService
     private async Task<OAuthResult> IssueTokensAsync(UserDb user) => new()
     {
         Success = true,
-        Token = _tokenService.CreateForCustomer(user),
+        Token = await _accessTokenService.CreateForCustomerAsync(user),
         RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER),
-        ExpiresIn = _tokenService.AccessTokenLifetimeSeconds,
+        ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
         UserData = UserMapper.ToLoginResponse(user)
     };
 

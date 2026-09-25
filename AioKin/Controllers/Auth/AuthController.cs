@@ -45,7 +45,7 @@ public class AuthController : ControllerBase
     private readonly ITemporaryPasswordService _tempPasswordService;
     private readonly IRedisService _redis;
     private readonly IRefreshTokenService _refreshTokenService;
-    private readonly IJwtTokenService _tokenService;
+    private readonly IAccessTokenService _accessTokenService;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
@@ -57,7 +57,7 @@ public class AuthController : ControllerBase
         ITemporaryPasswordService tempPasswordService,
         IRedisService redis,
         IRefreshTokenService refreshTokenService,
-        IJwtTokenService tokenService,
+        IAccessTokenService accessTokenService,
         ILogger<AuthController> logger)
     {
         _configuration = configuration;
@@ -68,7 +68,7 @@ public class AuthController : ControllerBase
         _tempPasswordService = tempPasswordService;
         _redis = redis;
         _refreshTokenService = refreshTokenService;
-        _tokenService = tokenService;
+        _accessTokenService = accessTokenService;
         _logger = logger;
     }
 
@@ -132,9 +132,9 @@ public class AuthController : ControllerBase
 
         return Ok(new TokenResponse
         {
-            AccessToken = _tokenService.CreateForCustomer(user),
+            AccessToken = await _accessTokenService.CreateForCustomerAsync(user),
             RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER),
-            ExpiresIn = _tokenService.AccessTokenLifetimeSeconds,
+            ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             TokenType = "Bearer",
             Scope = Roles.CUSTOMER
         });
@@ -225,7 +225,7 @@ public class AuthController : ControllerBase
 
         await _redis.DeleteAsync(RedisKeys.Registration(model.Email));
 
-        var accessToken = _tokenService.CreateForCustomer(createdUser);
+        var accessToken = await _accessTokenService.CreateForCustomerAsync(createdUser);
         var refreshToken = await _refreshTokenService.GenerateAsync(createdUser.UserCode, Roles.CUSTOMER);
 
         // Email chao mung khong duoc lam hong dang ky — gui that bai thi chi ghi log.
@@ -236,7 +236,7 @@ public class AuthController : ControllerBase
         {
             accessToken,
             refreshToken,
-            expiresIn = _tokenService.AccessTokenLifetimeSeconds,
+            expiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             tokenType = "Bearer",
             user = UserMapper.ToLoginResponse(createdUser)
         }));
@@ -398,7 +398,7 @@ public class AuthController : ControllerBase
             if (user is null || !user.IsActive || user.IsLocked)
                 return this.ToActionResult(OperationResult.Fail("UserInactive", "Tai khoan khong con hoat dong."));
 
-            accessToken = _tokenService.CreateForCustomer(user);
+            accessToken = await _accessTokenService.CreateForCustomerAsync(user);
         }
         else
         {
@@ -409,7 +409,7 @@ public class AuthController : ControllerBase
 
             // Doc lai role tu database thay vi tin role trong refresh token: quyen co the
             // da bi ha ke tu luc dang nhap.
-            accessToken = _tokenService.CreateForStaff(staff, staff.Role?.RoleName ?? role);
+            accessToken = await _accessTokenService.CreateForStaffAsync(staff, staff.Role?.RoleName ?? role);
             role = staff.Role?.RoleName ?? role;
         }
 
@@ -417,27 +417,20 @@ public class AuthController : ControllerBase
         {
             AccessToken = accessToken,
             RefreshToken = await _refreshTokenService.GenerateAsync(subject, role),
-            ExpiresIn = _tokenService.AccessTokenLifetimeSeconds,
+            ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             TokenType = "Bearer",
             Scope = role
         });
     }
 
-    /// <summary>Dang xuat: dua JTI vao blacklist Redis nen access token bi thu hoi that su.</summary>
+    /// <summary>Dang xuat: thu hoi access token va (neu co) refresh token cua thiet bi nay.</summary>
     [HttpPost("logout")]
     [Authorize]
     public async Task<IActionResult> Logout([FromBody] LogoutRequest? request = null)
     {
-        var jti = User.GetJti();
-        if (!string.IsNullOrEmpty(jti))
-        {
-            // TTL = tuoi tho token + 1 phut, du phu toi khi token het han tu nhien.
-            // Giu lau hon chi ton bo nho Redis ma khong them bao ve gi.
-            await _redis.SetStringAsync(
-                RedisKeys.JwtBlacklist(jti),
-                "1",
-                TimeSpan.FromSeconds(_tokenService.AccessTokenLifetimeSeconds + 60));
-        }
+        var sessionToken = User.GetSessionToken();
+        if (!string.IsNullOrEmpty(sessionToken))
+            await _accessTokenService.RevokeAsync(sessionToken);
 
         if (!string.IsNullOrEmpty(request?.RefreshToken))
             await _refreshTokenService.RevokeAsync(request.RefreshToken);
@@ -445,7 +438,7 @@ public class AuthController : ControllerBase
         return Ok(OperationResult.Ok("Dang xuat thanh cong."));
     }
 
-    /// <summary>Dang xuat khoi moi thiet bi: thu hoi toan bo refresh token cua tai khoan.</summary>
+    /// <summary>Dang xuat khoi moi thiet bi: thu hoi toan bo access va refresh token cua tai khoan.</summary>
     [HttpPost("logout-all")]
     [Authorize]
     public async Task<IActionResult> LogoutAll()
@@ -454,15 +447,7 @@ public class AuthController : ControllerBase
         if (string.IsNullOrEmpty(subject))
             return Unauthorized(OperationResult.Fail("Unauthorized", "Token thieu thong tin dinh danh."));
 
-        var jti = User.GetJti();
-        if (!string.IsNullOrEmpty(jti))
-        {
-            await _redis.SetStringAsync(
-                RedisKeys.JwtBlacklist(jti),
-                "1",
-                TimeSpan.FromSeconds(_tokenService.AccessTokenLifetimeSeconds + 60));
-        }
-
+        await _accessTokenService.RevokeAllForSubjectAsync(subject);
         await _refreshTokenService.RevokeAllAsync(subject);
         return Ok(OperationResult.Ok("Da dang xuat khoi tat ca thiet bi."));
     }

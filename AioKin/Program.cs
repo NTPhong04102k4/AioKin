@@ -206,10 +206,10 @@ else
 
 // ─── Service tang Auth ────────────────────────────────────────────────────────
 //
-// Scoped cho cung vong doi voi AioKinDbContext. JwtTokenService khong cham database nhung
+// Scoped cho cung vong doi voi AioKinDbContext. AccessTokenService khong cham database nhung
 // van de Scoped cho dong nhat — gia tao no gan nhu bang khong.
 
-builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IAccessTokenService, AccessTokenService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<ITemporaryPasswordService, TemporaryPasswordService>();

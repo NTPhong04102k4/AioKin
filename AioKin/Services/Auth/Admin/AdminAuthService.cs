@@ -15,7 +15,7 @@ public class AdminAuthService : IAdminAuthService
     private readonly AioKinDbContext _db;
     private readonly IConfiguration _configuration;
     private readonly ISuperAdminGuardService _superAdminGuard;
-    private readonly IJwtTokenService _tokenService;
+    private readonly IAccessTokenService _accessTokenService;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly ILogger<AdminAuthService> _logger;
 
@@ -23,14 +23,14 @@ public class AdminAuthService : IAdminAuthService
         AioKinDbContext db,
         IConfiguration configuration,
         ISuperAdminGuardService superAdminGuard,
-        IJwtTokenService tokenService,
+        IAccessTokenService accessTokenService,
         IRefreshTokenService refreshTokenService,
         ILogger<AdminAuthService> logger)
     {
         _db = db;
         _configuration = configuration;
         _superAdminGuard = superAdminGuard;
-        _tokenService = tokenService;
+        _accessTokenService = accessTokenService;
         _refreshTokenService = refreshTokenService;
         _logger = logger;
     }
@@ -68,9 +68,9 @@ public class AdminAuthService : IAdminAuthService
             FullName = staff.FullName,
             Username = staff.Username,
             Role = roleName,
-            Token = _tokenService.CreateForStaff(staff, roleName),
+            Token = await _accessTokenService.CreateForStaffAsync(staff, roleName),
             RefreshToken = await _refreshTokenService.GenerateAsync(staff.Username, roleName),
-            ExpiresIn = _tokenService.AccessTokenLifetimeSeconds
+            ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds
         };
     }
 
