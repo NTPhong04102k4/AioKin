@@ -19,6 +19,7 @@ using AioKin.Services.Auth.User;
 using AioKin.Services.Common.Cache;
 using AioKin.Services.Content;
 using AioKin.Services.Family;
+using AioKin.Services.Vault;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -230,6 +231,7 @@ builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
 builder.Services.AddScoped<IScheduleService, ScheduleService>();
 builder.Services.AddScoped<IFamilyContext, FamilyContext>();
 builder.Services.AddScoped<IFamilyService, FamilyService>();
+builder.Services.AddScoped<ISpaceContext, SpaceContext>();
 
 // ─── Xac thuc ─────────────────────────────────────────────────────────────────
 
