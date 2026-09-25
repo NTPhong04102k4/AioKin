@@ -186,10 +186,16 @@ public static class DbSeeder
             role.Permissions = existingArray.ToJsonString();
             return true;
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or ArgumentException)
         {
+            // Final review finding 3: JsonNode.Parse nem ArgumentException (khong phai
+            // JsonException) tren mot JSON object co key trung nhau (vi du Permissions bi sua
+            // tay thanh {"action":"x","action":"y",...}) — cot Permissions la string thuong,
+            // khong co rang buoc JSON o tang DB nen truong hop nay hoan toan co the xay ra.
+            // Thieu nhanh nay thi loi vuot qua catch cu va lam sap ung dung ngay luc khoi dong,
+            // dung nguoc lai muc dich cua Ruling D2 (bo sung an toan, khong bao gio crash).
             logger.LogWarning(ex,
-                "Bo qua bo sung permission cho role {RoleName}: rule hien co (hoac rule wanted) co hinh dang CASL ngoai du doan cua bo so sanh (vi du subject dang mang).",
+                "Bo qua bo sung permission cho role {RoleName}: rule hien co (hoac rule wanted) co hinh dang CASL ngoai du doan cua bo so sanh (vi du subject dang mang, hoac JSON co key trung nhau).",
                 role.RoleName);
             return false;
         }
