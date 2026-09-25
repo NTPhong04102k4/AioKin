@@ -232,6 +232,7 @@ builder.Services.AddScoped<IScheduleService, ScheduleService>();
 builder.Services.AddScoped<IFamilyContext, FamilyContext>();
 builder.Services.AddScoped<IFamilyService, FamilyService>();
 builder.Services.AddScoped<ISpaceContext, SpaceContext>();
+builder.Services.AddScoped<ISpaceService, SpaceService>();
 
 // ─── Xac thuc ─────────────────────────────────────────────────────────────────
 

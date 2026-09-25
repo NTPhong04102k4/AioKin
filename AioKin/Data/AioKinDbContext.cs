@@ -180,6 +180,13 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
                 .WithMany()
                 .HasForeignKey(s => s.OwnerUserID)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // 1 personal space moi user — chan race trong EnsureMyPersonalSpaceAsync o tang DB,
+            // khong chi o tang application.
+            entity.HasIndex(s => s.OwnerUserID)
+                .IsUnique()
+                .HasFilter("space_type = 0")
+                .HasDatabaseName("ix_spaces_owner_personal_unique");
         });
 
         modelBuilder.Entity<SpaceMember>(entity =>
