@@ -141,12 +141,34 @@ public class BiometricAuthService : IBiometricAuthService
         await _accessTokenService.RevokeForDeviceAsync(user.UserCode, challenge.DeviceId);
         await _refreshTokenService.RevokeAllForDeviceAsync(user.UserCode, challenge.DeviceId);
 
+        var accessToken = await _accessTokenService.CreateForCustomerAsync(user, device);
+        var refreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER, device);
+
+        // Finding 3 (hardening): dong hep race — giua luc credential duoc doc o dau ham va luc
+        // token vua duoc phat xong o tren, mot RevokeAllForUserAsync khac (vd doi mat khau/dat
+        // lai mat khau xay ra CUNG luc o request khac) co the da danh dau CHINH credential nay
+        // la RevokedAt. Doc lai RevokedAt truc tiep tu DB (khong dung lai bien credential da
+        // doc dau ham) ngay sau khi phat token — neu da bi revoke trong luc do, huy ngay cap
+        // token vua phat va tra ve cung loi generic thay vi tra token cho mot credential vua bi
+        // thu hoi.
+        var revokedDuringIssue = await _db.DeviceCredentials
+            .Where(c => c.DeviceCredentialID == credential.DeviceCredentialID)
+            .Select(c => c.RevokedAt)
+            .FirstOrDefaultAsync();
+
+        if (revokedDuringIssue is not null)
+        {
+            await _accessTokenService.RevokeForDeviceAsync(user.UserCode, challenge.DeviceId);
+            await _refreshTokenService.RevokeAllForDeviceAsync(user.UserCode, challenge.DeviceId);
+            return Fail(challenge.DeviceId, "revoked_race");
+        }
+
         _logger.LogInformation("Biometric login succeeded for userCode={UserCode}, deviceId={DeviceId}", user.UserCode, challenge.DeviceId);
 
         return OperationResult.Ok("Dang nhap thanh cong.", new TokenResponse
         {
-            AccessToken = await _accessTokenService.CreateForCustomerAsync(user, device),
-            RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER, device),
+            AccessToken = accessToken,
+            RefreshToken = refreshToken,
             ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             TokenType = "Bearer",
             Scope = Roles.CUSTOMER
@@ -163,12 +185,34 @@ public class BiometricAuthService : IBiometricAuthService
         }
     }
 
-    public async Task<OperationResult> RevokeAsync(Guid userUuid, string deviceId)
+    public async Task<OperationResult> RevokeAsync(Guid userUuid, string deviceId, string? callerDeviceId = null)
     {
         var user = await _userService.GetByUuidAsync(userUuid);
         if (user is null)
             return OperationResult.Fail("NotFound", "Khong tim thay nguoi dung.");
 
+        return await RevokeCoreAsync(user, deviceId, callerDeviceId);
+    }
+
+    public async Task<OperationResult> RevokeAsync(string userCode, string deviceId)
+    {
+        var user = await _userService.GetByUserCodeAsync(userCode);
+        if (user is null)
+            return OperationResult.Fail("NotFound", "Khong tim thay nguoi dung.");
+
+        // AccountController.DeleteSession (finding 1) luon la revoke tu xa cho 1 session cu
+        // the — khong phai tu tat sinh trac tren chinh thiet bi dang dung, nen callerDeviceId
+        // luon null va phien/refresh token cua thiet bi do luon bi thu hoi (khong bo qua).
+        return await RevokeCoreAsync(user, deviceId, callerDeviceId: null);
+    }
+
+    /// <summary>
+    /// Loi chung cho hai overload RevokeAsync o tren: tim dung credential con hieu luc cua
+    /// dung user + deviceId, danh dau RevokedAt, roi thu hoi phien/refresh token cua thiet bi
+    /// do TRU KHI callerDeviceId trung voi deviceId dang bi revoke.
+    /// </summary>
+    private async Task<OperationResult> RevokeCoreAsync(AioKin.Data.Entities.Security.User user, string deviceId, string? callerDeviceId)
+    {
         var credential = await _db.DeviceCredentials
             .FirstOrDefaultAsync(c => c.UserID == user.UserID && c.DeviceId == deviceId && c.RevokedAt == null);
 
@@ -185,7 +229,13 @@ public class BiometricAuthService : IBiometricAuthService
         // cung primitive VerifyAsync da dung o P10 — thu hoi ca access session lan refresh
         // token con song cua DUNG thiet bi nay, de "revoke" nghia la khoa han thiet bi do, khong
         // chi la tat loi tat sinh trac.
-        await RevokeDeviceSessionsAsync(user.UserCode, deviceId);
+        //
+        // Finding 2: NGOAI LE cho truong hop tu tat sinh trac NGAY TREN thiet bi dang dung
+        // (callerDeviceId == deviceId) — day la thao tac UI chinh theo spec muc 5.5, khong
+        // phai kich ban "mat may/bi chiem token", nen KHONG duoc tu dang xuat nguoi dung khoi
+        // chinh phien ho dang dung chi vi ho tat mot cong tac cai dat.
+        if (!string.Equals(callerDeviceId, deviceId, StringComparison.Ordinal))
+            await RevokeDeviceSessionsAsync(user.UserCode, deviceId);
 
         _logger.LogInformation("Biometric credential revoked for userCode={UserCode}, deviceId={DeviceId}", user.UserCode, deviceId);
         return OperationResult.Ok("Da tat dang nhap sinh trac cho thiet bi nay.");

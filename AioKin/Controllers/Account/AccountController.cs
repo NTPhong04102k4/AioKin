@@ -153,6 +153,14 @@ public class AccountController : ControllerBase
         {
             await _refreshTokenService.RevokeAllForDeviceAsync(userCode, deviceId);
             await _accessTokenService.RevokeForDeviceAsync(userCode, deviceId);
+
+            // Finding 1 (SECURITY): xoa 1 session cu the cung phai thu hoi credential sinh
+            // trac dang ky cho CUNG thiet bi do — token bi lo va tu dang ky duoc sinh trac
+            // khong duoc song sot qua DELETE session. Ket qua bi bo qua co tinh: khong co
+            // credential nao cho thiet bi nay la binh thuong (RevokeAsync tra Fail NotFound),
+            // khong duoc lam hong request xoa session chi vi thiet bi chua tung dang ky sinh
+            // trac.
+            await _biometricAuthService.RevokeAsync(userCode, deviceId);
         }
 
         return Ok(OperationResult.Ok("Da dang xuat thiet bi."));

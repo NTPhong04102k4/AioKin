@@ -493,6 +493,16 @@ public class AuthController : ControllerBase
 
         await _accessTokenService.RevokeAllForSubjectAsync(subject);
         await _refreshTokenService.RevokeAllAsync(subject);
+
+        // Finding 1 (SECURITY, overrides P20): logout-all cung phai thu hoi TOAN BO credential
+        // sinh trac cua user — mot access/refresh token bi lo va tu dang ky duoc sinh trac cho
+        // mot thiet bi khong duoc song sot qua "dang xuat khoi tat ca thiet bi". Subject o day
+        // co the la UserCode (customer) hoac Username (staff) — RevokeAllForUserAsync tu
+        // khong lam gi neu khong tim thay user theo userCode (nhanh staff), nen goi vo dieu
+        // kien o day la an toan cho ca hai nhanh, giong cach AuthController.ResetPassword va
+        // AccountController.ChangePassword (Task 5) da lam.
+        await _biometricAuthService.RevokeAllForUserAsync(subject);
+
         return Ok(OperationResult.Ok("Da dang xuat khoi tat ca thiet bi."));
     }
 
