@@ -165,6 +165,43 @@ public class AccessTokenService : IAccessTokenService
         return result;
     }
 
+    public async Task<AccessTokenSession?> RevokeByIdAsync(string subject, string id)
+    {
+        // Id sai dinh dang khong the khop bat ky hash that nao (public id luon la 12 hex tu
+        // sha256), nhung tu choi tu day tranh lam viec Redis vo ich voi input ro rang khong
+        // hop le — va van tra ve cung "khong tim thay" nhu moi truong hop khac.
+        if (!TokenHash.IsValidPublicId(id))
+            return null;
+
+        var key = RedisKeys.UserAccessSessions(subject);
+        var existing = await _redis.GetStringAsync(key) ?? string.Empty;
+        var hashes = existing.Split(SessionSeparator, StringSplitOptions.RemoveEmptyEntries).ToList();
+
+        // So khop bang dang thuc (khong phai StartsWith): id cong khai luon dung 12 ky tu,
+        // va day la tap da duoc gioi han san trong danh sach cua chinh subject nay — khong
+        // co request nao doc duoc id thuoc ve nguoi khac di qua day.
+        var match = hashes.FirstOrDefault(h => TokenHash.PublicId(h) == id);
+        if (match is null)
+            return null;
+
+        var session = await _redis.GetAsync<AccessTokenSession>(RedisKeys.AccessSession(match));
+
+        // Bo khoi danh sach theo doi trong moi truong hop: da thu hoi thanh cong hoac hash
+        // nay tu lau da chet (session het han) — ca hai deu khong con ly do gi de giu lai.
+        hashes.Remove(match);
+        await _redis.SetStringAsync(key, string.Join(SessionSeparator, hashes), TimeSpan.FromSeconds(AccessTokenLifetimeSeconds));
+
+        if (session is null)
+        {
+            _logger.LogWarning("RevokeByIdAsync: id khop hash nhung session da het han, subject={Subject}", subject);
+            return null;
+        }
+
+        await _redis.DeleteAsync(RedisKeys.AccessSession(match));
+        _logger.LogInformation("Access session revoked by id for subject={Subject}", subject);
+        return session;
+    }
+
     public async Task RevokeForDeviceAsync(string subject, string deviceId)
     {
         var key = RedisKeys.UserAccessSessions(subject);

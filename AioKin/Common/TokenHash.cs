@@ -21,4 +21,12 @@ public static class TokenHash
     /// Khong the doi nguoc lai token, nhung du ngan de nguoi dung phan biet cac phien.
     /// </summary>
     public static string PublicId(string hash) => hash[..PublicIdLength];
+
+    /// <summary>
+    /// True neu <paramref name="id"/> co dung hinh dang mot public id (12 ky tu hex thuong) —
+    /// dung de tu choi ngay id sai dinh dang truoc khi do vao Redis, khong lo them thong tin
+    /// gi qua thoi gian phan hoi.
+    /// </summary>
+    public static bool IsValidPublicId(string id)
+        => id.Length == PublicIdLength && id.All(c => c is (>= '0' and <= '9') or (>= 'a' and <= 'f'));
 }

@@ -36,6 +36,14 @@ public interface IAccessTokenService
     Task<IReadOnlyList<(string Id, AccessTokenSession Session)>> ListSessionsAsync(string subject);
 
     /// <summary>
+    /// Thu hoi 1 session bang id cong khai, chi trong tap session cua chinh subject nay.
+    /// Tra ve session vua bi thu hoi (de controller dung DeviceId ma khong phai list lai),
+    /// hoac null neu id sai dinh dang / khong thuoc ve subject nay / da het han — ba truong
+    /// hop nay deu tra ve cung mot ket qua "khong tim thay" de khong lo them thong tin gi.
+    /// </summary>
+    Task<AccessTokenSession?> RevokeByIdAsync(string subject, string id);
+
+    /// <summary>
     /// Thu hoi cac access session dang song cua mot subject PHAT TU mot thiet bi cu the —
     /// dung khi refresh (bo session cu cua cung thiet bi, tranh trung lap trong danh sach
     /// phien) va khi "dang xuat thiet bi nay".

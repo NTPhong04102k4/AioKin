@@ -124,6 +124,32 @@ public class AccountController : ControllerBase
         return Ok(OperationResult.Ok(data: response));
     }
 
+    /// <summary>Dang xuat 1 thiet bi cu the: thu hoi access session va refresh token cung thiet bi do.</summary>
+    [HttpDelete("sessions/{id}")]
+    public async Task<IActionResult> DeleteSession(string id)
+    {
+        var userCode = User.GetUserCode();
+        if (string.IsNullOrEmpty(userCode))
+            return Unauthorized(OperationResult.Fail("Unauthorized", "Token thieu thong tin nguoi dung."));
+
+        // RevokeByIdAsync tu kiem tra id co thuoc ve userCode nay khong va tra ve chinh
+        // session vua bi xoa — khong can list roi tim lai (P8).
+        var revoked = await _accessTokenService.RevokeByIdAsync(userCode, id);
+        if (revoked is null)
+            return NotFound(OperationResult.Fail("NotFound", "Khong tim thay phien dang nhap nay."));
+
+        // Thiet bi khong xac dinh (DeviceId null, vd token cu tu truoc khi co truong nay)
+        // thi bo qua buoc thu hoi theo thiet bi — khong co gi de khop, va khong duoc lam
+        // rong toan bo danh sach refresh token cua user chi vi mot session thieu DeviceId.
+        if (revoked.DeviceId is { } deviceId)
+        {
+            await _refreshTokenService.RevokeAllForDeviceAsync(userCode, deviceId);
+            await _accessTokenService.RevokeForDeviceAsync(userCode, deviceId);
+        }
+
+        return Ok(OperationResult.Ok("Da dang xuat thiet bi."));
+    }
+
     /// <summary>Gui email lien he toi bo phan ho tro tu tai khoan dang dang nhap.</summary>
     [HttpPost("me/contact")]
     [EnableRateLimiting("auth")]
