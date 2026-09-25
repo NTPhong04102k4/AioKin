@@ -422,3 +422,5 @@ AioKin/appsettings.json
 AioKin/appsettings.Development.json
 
 AioKin.Tests/
+
+AioKin/Data/Migrations
