@@ -30,7 +30,7 @@ public class RefreshTokenService : IRefreshTokenService
         return TimeSpan.FromDays(days);
     }
 
-    public async Task<string> GenerateAsync(string subject, string role, string? deviceId)
+    public async Task<string> GenerateAsync(string subject, string role, string? deviceId, string? deviceName, string? platform)
     {
         // 64 byte ngau nhien, base64url khong padding — an toan khi dat trong URL/header.
         var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(64))
@@ -41,7 +41,8 @@ public class RefreshTokenService : IRefreshTokenService
         var hash = TokenHash.Sha256Hex(token);
         var ttl = ResolveTtl();
 
-        var saved = await _redis.SetAsync(RedisKeys.RefreshToken(hash), new RefreshTokenPayload(subject, role, deviceId), ttl);
+        var saved = await _redis.SetAsync(
+            RedisKeys.RefreshToken(hash), new RefreshTokenPayload(subject, role, deviceId, deviceName, platform), ttl);
         if (!saved)
         {
             // Cung pattern voi AccessTokenService.IssueAsync: khong duoc tra ve token

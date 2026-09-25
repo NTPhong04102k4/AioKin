@@ -207,14 +207,22 @@ public class OAuthService : IOAuthService
         }
     }
 
-    private async Task<OAuthResult> IssueTokensAsync(UserDb user) => new()
+    private async Task<OAuthResult> IssueTokensAsync(UserDb user)
     {
-        Success = true,
-        Token = await _accessTokenService.CreateForCustomerAsync(user),
-        RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER, deviceId: null),
-        ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
-        UserData = UserMapper.ToLoginResponse(user)
-    };
+        // Popup redirect SSO khong co truong thiet bi (chua trong pham vi ke hoach nay) — van
+        // sinh mot dinh danh thiet bi server-side de phien luon co the truy va thu hoi rieng.
+        var device = DeviceInfo.Resolve(null, null, null);
+
+        return new OAuthResult
+        {
+            Success = true,
+            Token = await _accessTokenService.CreateForCustomerAsync(user, device),
+            RefreshToken = await _refreshTokenService.GenerateAsync(
+                user.UserCode, Roles.CUSTOMER, device.DeviceId, device.DeviceName, device.Platform),
+            ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
+            UserData = UserMapper.ToLoginResponse(user)
+        };
+    }
 
     private static string ReadString(JsonElement element, string property)
         => element.TryGetProperty(property, out var value) ? value.GetString() ?? string.Empty : string.Empty;

@@ -130,10 +130,13 @@ public class AuthController : ControllerBase
 
         await _userService.RecordLoginAttemptAsync(user.UserUUID, 0, false, null, DateTime.UtcNow);
 
+        var device = DeviceInfo.Resolve(model.DeviceId, model.DeviceName, model.Platform);
+
         return Ok(new TokenResponse
         {
-            AccessToken = await _accessTokenService.CreateForCustomerAsync(user),
-            RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER, deviceId: null),
+            AccessToken = await _accessTokenService.CreateForCustomerAsync(user, device),
+            RefreshToken = await _refreshTokenService.GenerateAsync(
+                user.UserCode, Roles.CUSTOMER, device.DeviceId, device.DeviceName, device.Platform),
             ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             TokenType = "Bearer",
             Scope = Roles.CUSTOMER
@@ -225,8 +228,10 @@ public class AuthController : ControllerBase
 
         await _redis.DeleteAsync(RedisKeys.Registration(model.Email));
 
-        var accessToken = await _accessTokenService.CreateForCustomerAsync(createdUser);
-        var refreshToken = await _refreshTokenService.GenerateAsync(createdUser.UserCode, Roles.CUSTOMER, deviceId: null);
+        var device = DeviceInfo.Resolve(model.DeviceId, model.DeviceName, model.Platform);
+        var accessToken = await _accessTokenService.CreateForCustomerAsync(createdUser, device);
+        var refreshToken = await _refreshTokenService.GenerateAsync(
+            createdUser.UserCode, Roles.CUSTOMER, device.DeviceId, device.DeviceName, device.Platform);
 
         // Email chao mung khong duoc lam hong dang ky — gui that bai thi chi ghi log.
         if (createdUser.Email is not null)
@@ -384,11 +389,25 @@ public class AuthController : ControllerBase
             return this.ToActionResult(OperationResult.Fail("InvalidRefreshToken",
                 "Refresh token khong hop le hoac da het han. Vui long dang nhap lai."));
 
-        var (subject, role, deviceId) = payload;
+        var (subject, role, payloadDeviceId, payloadDeviceName, payloadPlatform) = payload;
 
         // Thu hoi truoc khi cap token moi: neu cap truoc roi moi thu hoi va co su co o
         // giua, ca hai token deu con song.
         await _refreshTokenService.RevokeAsync(model.RefreshToken);
+
+        // Uu tien thiet bi client gui kem request refresh; client cu/native thuong khong gui
+        // lai deviceId luc refresh, nen roi ve thiet bi da luu trong payload tu luc dang nhap
+        // thay vi Resolve() sinh mot unknown-<guid> MOI moi lan refresh — sinh moi se lam
+        // danh sach phien trung lap them mot thiet bi "ma" cho cung mot may (Expo gap G7).
+        var deviceId = string.IsNullOrWhiteSpace(model.DeviceId) ? payloadDeviceId : model.DeviceId;
+        var deviceName = string.IsNullOrWhiteSpace(model.DeviceName) ? payloadDeviceName : model.DeviceName;
+        var platform = string.IsNullOrWhiteSpace(model.Platform) ? payloadPlatform : model.Platform;
+        var device = DeviceInfo.Resolve(deviceId, deviceName, platform);
+
+        // Bo access session cu cua chinh thiet bi nay truoc khi cap cai moi — neu khong no
+        // van song toi khi het TTL, khien danh sach phien hien thi hai ban ghi cho cung mot
+        // thiet bi sau moi lan refresh.
+        await _accessTokenService.RevokeForDeviceAsync(subject, device.DeviceId!);
 
         string accessToken;
 
@@ -399,7 +418,7 @@ public class AuthController : ControllerBase
             if (user is null || !user.IsActive || user.IsLocked)
                 return this.ToActionResult(OperationResult.Fail("UserInactive", "Tai khoan khong con hoat dong."));
 
-            accessToken = await _accessTokenService.CreateForCustomerAsync(user);
+            accessToken = await _accessTokenService.CreateForCustomerAsync(user, device);
         }
         else
         {
@@ -410,14 +429,15 @@ public class AuthController : ControllerBase
 
             // Doc lai role tu database thay vi tin role trong refresh token: quyen co the
             // da bi ha ke tu luc dang nhap.
-            accessToken = await _accessTokenService.CreateForStaffAsync(staff, staff.Role?.RoleName ?? role);
+            accessToken = await _accessTokenService.CreateForStaffAsync(staff, staff.Role?.RoleName ?? role, device);
             role = staff.Role?.RoleName ?? role;
         }
 
         return Ok(new TokenResponse
         {
             AccessToken = accessToken,
-            RefreshToken = await _refreshTokenService.GenerateAsync(subject, role, deviceId: null),
+            RefreshToken = await _refreshTokenService.GenerateAsync(
+                subject, role, device.DeviceId, device.DeviceName, device.Platform),
             ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             TokenType = "Bearer",
             Scope = role

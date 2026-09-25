@@ -63,13 +63,18 @@ public class AdminAuthService : IAdminAuthService
 
         var roleName = staff.Role?.RoleName ?? Roles.STAFF;
 
+        // Dang nhap admin khong co truong thiet bi tren DTO (chua trong pham vi ke hoach nay) —
+        // van sinh mot dinh danh thiet bi server-side de phien luon co the truy va thu hoi rieng.
+        var device = DeviceInfo.Resolve(null, null, null);
+
         return new LoginAdminResponse
         {
             FullName = staff.FullName,
             Username = staff.Username,
             Role = roleName,
-            Token = await _accessTokenService.CreateForStaffAsync(staff, roleName),
-            RefreshToken = await _refreshTokenService.GenerateAsync(staff.Username, roleName, deviceId: null),
+            Token = await _accessTokenService.CreateForStaffAsync(staff, roleName, device),
+            RefreshToken = await _refreshTokenService.GenerateAsync(
+                staff.Username, roleName, device.DeviceId, device.DeviceName, device.Platform),
             ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds
         };
     }

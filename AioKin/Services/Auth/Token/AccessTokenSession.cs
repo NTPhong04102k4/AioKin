@@ -21,5 +21,9 @@ public sealed class AccessTokenSession
     public required string Name { get; init; }
     public required string Role { get; init; }
 
+    public string? DeviceId { get; init; }
+    public string? DeviceName { get; init; }
+    public string? Platform { get; init; }
+
     public long IssuedAtUnix { get; init; } = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 }

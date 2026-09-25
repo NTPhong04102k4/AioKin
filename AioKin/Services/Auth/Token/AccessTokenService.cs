@@ -26,7 +26,7 @@ public class AccessTokenService : IAccessTokenService
 
     public int AccessTokenLifetimeSeconds => JwtConfiguration.ResolveAccessTokenMinutes(_configuration) * 60;
 
-    public Task<string> CreateForCustomerAsync(UserDb user)
+    public Task<string> CreateForCustomerAsync(UserDb user, DeviceInfo device)
     {
         var fullName = $"{user.FirstName} {user.LastName}".Trim();
 
@@ -38,11 +38,14 @@ public class AccessTokenService : IAccessTokenService
             Username = user.Username,
             Email = user.Email,
             Name = string.IsNullOrWhiteSpace(fullName) ? user.Username : fullName,
-            Role = Roles.CUSTOMER
+            Role = Roles.CUSTOMER,
+            DeviceId = device.DeviceId,
+            DeviceName = device.DeviceName,
+            Platform = device.Platform
         });
     }
 
-    public Task<string> CreateForStaffAsync(StaffDb staff, string roleName)
+    public Task<string> CreateForStaffAsync(StaffDb staff, string roleName, DeviceInfo device)
         => IssueAsync(new AccessTokenSession
         {
             Kind = AccessTokenSubjectKind.Staff,
@@ -51,7 +54,10 @@ public class AccessTokenService : IAccessTokenService
             Username = staff.Username,
             Email = staff.Email,
             Name = staff.FullName,
-            Role = roleName
+            Role = roleName,
+            DeviceId = device.DeviceId,
+            DeviceName = device.DeviceName,
+            Platform = device.Platform
         });
 
     private async Task<string> IssueAsync(AccessTokenSession session)
@@ -127,5 +133,25 @@ public class AccessTokenService : IAccessTokenService
 
         await _redis.DeleteAsync(key);
         _logger.LogInformation("All access sessions revoked for subject={Subject}", subject);
+    }
+
+    public async Task RevokeForDeviceAsync(string subject, string deviceId)
+    {
+        var key = RedisKeys.UserAccessSessions(subject);
+        var existing = await _redis.GetStringAsync(key) ?? string.Empty;
+
+        // Hash con lai trong danh sach sau khi bi thu hoi o day se tu that bai o
+        // ValidateAsync (key AccessSession da bi xoa) va duoc don dan qua MaxSessionsPerSubject
+        // hoac RevokeAllForSubjectAsync ke tiep — cung pattern voi
+        // RefreshTokenService.RevokeAllForDeviceAsync, khong doc lai toan bo danh sach chi de
+        // loai bo mot hash.
+        foreach (var hash in existing.Split(SessionSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var session = await _redis.GetAsync<AccessTokenSession>(RedisKeys.AccessSession(hash));
+            if (session is not null && string.Equals(session.DeviceId, deviceId, StringComparison.Ordinal))
+                await _redis.DeleteAsync(RedisKeys.AccessSession(hash));
+        }
+
+        _logger.LogInformation("Access sessions revoked for subject={Subject}, device={DeviceId}", subject, deviceId);
     }
 }

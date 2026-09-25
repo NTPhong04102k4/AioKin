@@ -10,10 +10,10 @@ namespace AioKin.Services.Auth.Token;
 public interface IAccessTokenService
 {
     /// <summary>Token cho khach hang — role luon la Customer.</summary>
-    Task<string> CreateForCustomerAsync(UserDb user);
+    Task<string> CreateForCustomerAsync(UserDb user, DeviceInfo device);
 
     /// <summary>Token cho tai khoan quan tri; <paramref name="roleName"/> lay tu Staff.Role.</summary>
-    Task<string> CreateForStaffAsync(StaffDb staff, string roleName);
+    Task<string> CreateForStaffAsync(StaffDb staff, string roleName, DeviceInfo device);
 
     /// <summary>Tra ve session neu token con hop le, null neu khong ton tai hoac het han.</summary>
     Task<AccessTokenSession?> ValidateAsync(string token);
@@ -23,6 +23,13 @@ public interface IAccessTokenService
 
     /// <summary>Thu hoi moi access token dang song cua mot subject (UserCode hoac Username).</summary>
     Task RevokeAllForSubjectAsync(string subject);
+
+    /// <summary>
+    /// Thu hoi cac access session dang song cua mot subject PHAT TU mot thiet bi cu the —
+    /// dung khi refresh (bo session cu cua cung thiet bi, tranh trung lap trong danh sach
+    /// phien) va khi "dang xuat thiet bi nay".
+    /// </summary>
+    Task RevokeForDeviceAsync(string subject, string deviceId);
 
     /// <summary>So giay song cua access token — dung cho truong <c>expires_in</c>.</summary>
     int AccessTokenLifetimeSeconds { get; }

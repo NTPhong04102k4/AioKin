@@ -6,8 +6,11 @@ namespace AioKin.Services.Auth.RefreshToken;
 /// </summary>
 public interface IRefreshTokenService
 {
-    /// <summary>Tao token moi va luu vao Redis. <paramref name="deviceId"/> co the null (client cu chua gui).</summary>
-    Task<string> GenerateAsync(string subject, string role, string? deviceId);
+    /// <summary>
+    /// Tao token moi va luu vao Redis. <paramref name="deviceId"/>/<paramref name="deviceName"/>/
+    /// <paramref name="platform"/> co the null (client cu chua gui hoac duong dang nhap khong doc duoc thiet bi).
+    /// </summary>
+    Task<string> GenerateAsync(string subject, string role, string? deviceId, string? deviceName, string? platform);
 
     /// <summary>Xac thuc. Null neu het han hoac khong ton tai.</summary>
     Task<RefreshTokenPayload?> ValidateAsync(string token);
