@@ -1,6 +1,7 @@
 using AioKin.Data.Entities.Core;
 using AioKin.Data.Entities.Family;
 using AioKin.Data.Entities.Security;
+using AioKin.Data.Entities.Vault;
 using Microsoft.EntityFrameworkCore;
 
 namespace AioKin.Data;
@@ -21,6 +22,8 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
     public DbSet<FamilyMember> FamilyMembers => Set<FamilyMember>();
     public DbSet<FamilyInvite> FamilyInvites => Set<FamilyInvite>();
     public DbSet<DeviceCredential> DeviceCredentials => Set<DeviceCredential>();
+    public DbSet<Space> Spaces => Set<Space>();
+    public DbSet<SpaceMember> SpaceMembers => Set<SpaceMember>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -155,6 +158,43 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
             entity.HasOne(i => i.Family)
                 .WithMany()
                 .HasForeignKey(i => i.FamilyID)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Space>(entity =>
+        {
+            entity.HasIndex(s => s.SpaceUUID).IsUnique();
+
+            // 1 family = 1 space. Partial-unique qua filter EF sinh tu Where-tuong-duong:
+            // dung HasFilter truc tiep vi FamilyID la nullable va chi Family-type moi dat no.
+            entity.HasIndex(s => s.FamilyID).IsUnique().HasFilter("family_id IS NOT NULL");
+
+            entity.HasOne(s => s.Family)
+                .WithMany()
+                .HasForeignKey(s => s.FamilyID)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK toi security.users — Space.OwnerUserID phai tro toi mot tai khoan that,
+            // giong cach FamilyMember/ScheduleItem lam voi UserID.
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(s => s.OwnerUserID)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<SpaceMember>(entity =>
+        {
+            entity.HasIndex(m => new { m.SpaceID, m.UserID }).IsUnique();
+            entity.HasIndex(m => m.UserID);
+
+            entity.HasOne(m => m.Space)
+                .WithMany()
+                .HasForeignKey(m => m.SpaceID)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(m => m.User)
+                .WithMany()
+                .HasForeignKey(m => m.UserID)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
