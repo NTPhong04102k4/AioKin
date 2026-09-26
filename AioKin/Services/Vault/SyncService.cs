@@ -729,8 +729,14 @@ public class SyncService : ISyncService
         {
             EntityType = "prompt",
             EntityID = remote.PromptID,
+            // G11: denormalized ngay tai day -- xem ghi chu tren SyncConflict.SpaceID.
+            SpaceID = remote.SpaceID,
+            // G9: luu lai THAO TAC cuc bo (khong chi noi dung) de resolve sau nay biet dung
+            // phai lam gi voi "keep_local" tren mot xung dot lien quan den delete.
+            LocalOperation = entry.Operation,
             LocalPayloadJson = localPayload,
             RemotePayloadJson = remotePayload,
+            RemoteIsDeleted = remote.IsDeleted,
             LocalVersion = entry.BaseVersion,
             RemoteVersion = remote.Version
         };
@@ -761,6 +767,176 @@ public class SyncService : ISyncService
                 Variables = [.. remote.Variables.Select(v => new PromptVariableResponse { VarKey = v.VarKey, Label = v.Label, DefaultValue = v.DefaultValue })]
             }
         };
+    }
+
+    /// <summary>
+    /// Task 4: POST /sync/conflicts/{id}/resolve. KHONG dung Last-Write-Wins (headline cua ca
+    /// plan) -- xem .superpowers/sdd/2026-09-25-promptvault-sync-engine/progress.md muc "Task 4"
+    /// cho toan bo ruling. Tom tat cac ruling duoc ap dung o day:
+    ///   - G11 (SECURITY): space cua xung dot duoc suy ra TU CHINH SyncConflict.SpaceID (client
+    ///     khong tu khai bao/gia mao duoc) roi kiem tra qua ISpaceContext.ResolveAsync, giong
+    ///     het pattern P17 cua Push/PromptBrowseService (Forbidden/403 cho nguoi khong phai
+    ///     thanh vien -- da xac minh day la pattern THAT SU dang dung trong code, khong phai
+    ///     "NotFound/404" nhu mot dong tom tat trong progress.md gia dinh).
+    ///   - P22: khong duoc ghi de neu dong SONG da doi khac (version hien tai != RemoteVersion
+    ///     da chup luc xung dot duoc ghi nhan) -- that bai ro rang (409) thay vi am tham de
+    ///     mot ben "thang".
+    ///   - G9: dung SyncConflict.LocalOperation/RemoteIsDeleted de xu ly dung ca 3 resolution
+    ///     tren mot xung dot co delete o mot trong hai ben (xem ApplyResolvedPayloadAsync).
+    ///   - G8: response tra kem NewVersion.
+    ///   - MUST (carry-forward Task 3): UpdatedByUserId/UpdatedDeviceId LUON duoc gan tuong minh
+    ///     tu danh tinh CUA CHINH caller, khong bao gio de sot lai danh tinh nguoi ghi truoc do.
+    /// </summary>
+    public async Task<OperationResult> ResolveConflictAsync(Guid conflictId, ResolveConflictRequest request, string? callerDeviceId, CancellationToken cancellationToken = default)
+    {
+        if (request.Resolution is not ("keep_local" or "keep_remote" or "merged"))
+            return OperationResult.Fail("ValidationError", "Resolution khong hop le.");
+
+        if (request.Resolution == "merged" && request.MergedPayload is null)
+            return OperationResult.Fail("ValidationError", "Thieu mergedPayload cho resolution 'merged'.");
+
+        var conflict = await _db.SyncConflicts.FirstOrDefaultAsync(c => c.ConflictID == conflictId && !c.Resolved, cancellationToken);
+        if (conflict is null)
+            return OperationResult.Fail("NotFound", "Khong tim thay xung dot can xu ly.");
+
+        // G11 (SECURITY): SyncConflict.SpaceID la NGUON DUY NHAT de biet xung dot nay thuoc
+        // space nao -- request khong (va khong duoc phep) tu mang theo spaceUuid rieng, tranh
+        // mot ke tan cong gia mao mot space ma no THAT SU la thanh vien de "hop phap hoa" viec
+        // resolve mot xung dot cua nguoi khac.
+        var spaceUuid = await _db.Spaces.AsNoTracking()
+            .Where(s => s.SpaceID == conflict.SpaceID)
+            .Select(s => (Guid?)s.SpaceUUID)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (spaceUuid is null)
+            return OperationResult.Fail("NotFound", "Khong tim thay xung dot can xu ly.");
+
+        var membership = await _spaceContext.ResolveAsync(spaceUuid.Value, cancellationToken);
+        if (membership is null)
+            return OperationResult.Fail("Forbidden", "Ban khong thuoc space nay.");
+
+        var prompt = await LoadTrackedPromptAsync(membership.SpaceID, conflict.EntityID, cancellationToken);
+        if (prompt is null)
+            return OperationResult.Fail("NotFound", "Prompt khong con ton tai.");
+
+        // P22: dong SONG phai con dung y het trang thai (version) da duoc chup luc xung dot nay
+        // duoc ghi nhan -- neu mot push/resolve KHAC da doi no ke tu do, ap dung resolution nay
+        // (dua tren du lieu cu) se la mot dang Last-Write-Wins tran hinh, bi cam.
+        if (prompt.Version != conflict.RemoteVersion)
+            return OperationResult.Fail("Conflict", "Du lieu tren server da thay doi ke tu khi xung dot nay duoc ghi nhan. Vui long dong bo lai roi thu lai.");
+
+        string? rejectReason = null;
+
+        switch (request.Resolution)
+        {
+            case "keep_remote":
+                // Khong sua noi dung: P22 vua xac nhan dong SONG hien tai CHINH LA trang thai
+                // "remote" duoc ghi nhan luc xung dot (version khop) -- khong co gi de ghi de.
+                break;
+
+            case "keep_local":
+                if (conflict.LocalOperation == "delete")
+                {
+                    // G9: local la mot delete -- "keep_local" phai THUC SU xoa dong, khong duoc
+                    // dong den Title/Content (khong co payload noi dung de dung: LocalPayloadJson
+                    // chi la literal "null" cho cac entry delete, xem RecordConflictAsync).
+                    prompt.IsDeleted = true;
+                }
+                else
+                {
+                    var localPayload = System.Text.Json.JsonSerializer.Deserialize<PromptPayload>(conflict.LocalPayloadJson);
+                    if (localPayload is null)
+                        return OperationResult.Fail("ValidationError", "Du lieu local cua xung dot nay bi hong.");
+
+                    rejectReason = await ApplyResolvedPayloadAsync(membership.SpaceID, prompt, localPayload, cancellationToken);
+                }
+                break;
+
+            case "merged":
+                // G9: du mot trong hai ben la delete, gui MergedPayload nghia la nguoi dung
+                // MUON noi dung nay TON TAI (undelete neu can) -- "merged" khong co khai niem
+                // "merge thanh xoa"; muon ket qua la xoa thi chon keep_local/keep_remote tuong
+                // ung (ben nao dang la delete).
+                var mergeValidationError = ValidatePayload(request.MergedPayload!);
+                if (mergeValidationError is not null)
+                    return OperationResult.Fail("ValidationError", mergeValidationError);
+
+                rejectReason = await ApplyResolvedPayloadAsync(membership.SpaceID, prompt, request.MergedPayload!, cancellationToken);
+                break;
+        }
+
+        if (rejectReason is not null)
+            return OperationResult.Fail("ValidationError", rejectReason);
+
+        // MUST (carry-forward Task 3): moi resolve la mot hanh dong ghi CUA CHINH caller -- gan
+        // tuong minh, KHONG duoc de sot lai danh tinh nguoi ghi TRUOC do qua COALESCE/bo qua.
+        // Anh huong truc tiep den echo suppression cua lan pull KE TIEP (xem Prompt
+        // .UpdatedByUserId/PullAsync).
+        prompt.UpdatedByUserId = membership.UserID;
+        prompt.UpdatedDeviceId = callerDeviceId;
+        prompt.HasConflict = false;
+
+        conflict.Resolved = true;
+        conflict.ResolutionStrategy = request.Resolution;
+        conflict.ResolvedAt = DateTime.UtcNow;
+
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // P22, lop phong thu THU HAI: race THAT giua luc doc prompt o tren va luc save nay
+            // (trong CHINH request nay) -- EF tu nem loi nay vi Prompt.Version la concurrency
+            // token (xem AioKinDbContext). Bao that bai ro rang thay vi am tham "thang", dung
+            // tinh than fail/re-conflict cua P22 (mot push/resolve khac tiep theo se tu tao lai
+            // mot SyncConflict moi dua tren trang thai that su hien tai neu can).
+            _db.ChangeTracker.Clear();
+            return OperationResult.Fail("Conflict", "Du lieu tren server da thay doi trong luc xu ly. Vui long dong bo lai roi thu lai.");
+        }
+
+        return OperationResult.Ok("Da xu ly xung dot.", new ResolveConflictResponse
+        {
+            PromptId = prompt.PromptID,
+            NewVersion = prompt.Version,
+            IsDeleted = prompt.IsDeleted
+        });
+    }
+
+    /// <summary>
+    /// Ap dung 1 PromptPayload (tu LocalPayloadJson khi keep_local, hoac MergedPayload khi
+    /// merged) len dong prompt dang resolve -- tai su dung dung logic voi duong push binh
+    /// thuong (ResolveCategoryAndTagsAsync/ReplaceTags/ReplaceVariables) de category/tag/
+    /// variable tuan theo dung ngu nghia G12/cross-space da co san, khong viet lai rieng cho
+    /// resolve (va vo tinh bo sot mot kiem tra bao mat da co). LUON dat IsDeleted=false: ca hai
+    /// nhanh goi ham nay (keep_local khi LocalOperation KHONG phai delete, va merged) deu ham y
+    /// nguoi dung muon dong nay TON TAI voi noi dung nay -- undelete neu ben con lai dang o
+    /// trang thai da xoa (G9).
+    /// </summary>
+    private async Task<string?> ApplyResolvedPayloadAsync(Guid spaceId, Prompt prompt, PromptPayload payload, CancellationToken cancellationToken)
+    {
+        var (refs, rejectReason) = await ResolveCategoryAndTagsAsync(spaceId, payload, cancellationToken);
+        if (refs is null)
+            return rejectReason;
+
+        if (refs.NewCategory is not null)
+            _db.Categories.Add(refs.NewCategory);
+        if (refs.NewTags.Count > 0)
+            _db.Tags.AddRange(refs.NewTags);
+
+        prompt.Title = payload.Title;
+        prompt.Content = payload.Content;
+        prompt.Description = payload.Description;
+        if (refs.CategoryProvided)
+            prompt.CategoryID = refs.CategoryId;
+
+        if (payload.Tags is not null)
+            ReplaceTags(prompt, refs.TagIds);
+        if (payload.Variables is not null)
+            ReplaceVariables(prompt, payload.Variables);
+
+        prompt.IsDeleted = false;
+
+        return null;
     }
 
     private sealed class ResolvedRefs
@@ -1005,6 +1181,16 @@ public class SyncService : ISyncService
         if (payload is null)
             return "Thieu payload.";
 
+        return ValidatePayload(payload);
+    }
+
+    /// <summary>
+    /// Phan validate CHI cho PromptPayload, tach rieng tu Validate(PushPromptEntry) de Task 4
+    /// (resolve, resolution="merged") co the tai su dung y het quy tac cho MergedPayload thay vi
+    /// viet lai/bo sot mot bo kiem tra khac.
+    /// </summary>
+    private static string? ValidatePayload(PromptPayload payload)
+    {
         if (string.IsNullOrWhiteSpace(payload.Title) || payload.Title.Length > 200)
             return "Title khong hop le.";
 

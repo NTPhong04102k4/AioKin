@@ -53,4 +53,20 @@ public class SyncController : ControllerBase
 
         return this.ToActionResult(await _syncService.PullAsync(spaceUuid, since, session?.DeviceId, cancellationToken));
     }
+
+    /// <summary>
+    /// Task 4: KHONG dung Last-Write-Wins -- ca 2 ban duoc giu, nguoi dung tu chon
+    /// keep_local/keep_remote/merged. Xem SyncService.ResolveConflictAsync va progress.md muc
+    /// "Task 4" cho toan bo ruling (G11 security, P22, G8, G9).
+    /// </summary>
+    [HttpPost("conflicts/{conflictId:guid}/resolve")]
+    public async Task<IActionResult> ResolveConflict(Guid conflictId, [FromBody] ResolveConflictRequest request, CancellationToken cancellationToken)
+    {
+        // Cung nguon DeviceId voi Push/Pull (P16/carry-forward): luon tu session cua chinh
+        // caller, khong bao gio tu body.
+        var sessionHash = User.GetSessionToken();
+        var session = string.IsNullOrEmpty(sessionHash) ? null : await _accessTokenService.GetByHashAsync(sessionHash);
+
+        return this.ToActionResult(await _syncService.ResolveConflictAsync(conflictId, request, session?.DeviceId, cancellationToken));
+    }
 }
