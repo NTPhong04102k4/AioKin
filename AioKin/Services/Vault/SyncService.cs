@@ -62,9 +62,11 @@ public class SyncService : ISyncService
 
     public async Task<OperationResult> PushAsync(SyncPushRequest request, string? callerDeviceId, CancellationToken cancellationToken = default)
     {
-        // P17 (SECURITY): moi thao tac push deu phai qua ISpaceContext truoc — bat ky thanh
-        // vien nao cua space deu duoc push (khong can CanManage, giong sua noi dung chia se
-        // binh thuong), nguoi ngoai space bi tu choi thang o day.
+        // P17 (SECURITY): moi thao tac push deu phai qua ISpaceContext truoc — nguoi ngoai
+        // space bi tu choi thang o day. Luu y: qua duoc cua ai cung push duoc (insert noi dung
+        // moi, hoac sua/xoa BAI CUA CHINH MINH) khong can CanManage — nhung sua/xoa bai cua
+        // NGUOI KHAC trong cung space THEM mot dieu kien nua (chi tac gia hoac CanManage), duoc
+        // gac o tang duoi (ApplyUpdateOrConflictAsync/PushDeleteAsync), khong phai o day.
         var membership = await _spaceContext.ResolveAsync(request.SpaceUuid, cancellationToken);
         if (membership is null)
             return OperationResult.Fail("Forbidden", "Ban khong thuoc space nay.");
@@ -464,16 +466,26 @@ public class SyncService : ISyncService
         {
             return await DispatchAsync(membership, deviceId, entry, cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             // Fix round 1, finding 1c: luoi an toan CUOI CUNG. Mot so loi (vd EF nem
             // InvalidOperationException NGAY tai Add()/AddRange() khi 2 entity moi trong CUNG
             // 1 entry trung khoa chinh — xem finding 1a/1b) xay ra TRUOC khi toi
             // SaveChangesAsync, tuc la ngoai pham vi cac catch(DbUpdateException) hep hon o
             // ben duoi. Khong bat o day thi 1 entry hong se lam bung ca request (500) va keo
-            // theo cac entry SAU trong CUNG batch bi mat ket qua/khong bao gio chay toi. Loai
-            // tru OperationCanceledException de khong nuot mat viec huy request binh thuong.
+            // theo cac entry SAU trong CUNG batch bi mat ket qua/khong bao gio chay toi.
+            //
+            // Fix round 3, finding 3 (final review): filter cu "ex is not OperationCanceledException"
+            // co cung loi voi finding 3 cua Task 3 (BuildSnapshotFallbackAsync) — mot
+            // TaskCanceledException NOI BO (vd DB command timeout) la MOT LOP CON cua
+            // OperationCanceledException nen se LOT QUA catch nay va rot thang thanh 500 chua xu
+            // ly, dung luc can duoc xuong cap nhe nhang nhat (per-entry rejection). So sanh voi
+            // cancellationToken.IsCancellationRequested (token CUA CHINH request nay) moi phan
+            // biet dung "caller that su huy" (cho throw tiep) voi "loi ha tang noi bo" (bat o
+            // day). Cung them log loi (truoc day catch nay im lang, khong the debug duoc entry
+            // nao that bai vi ly do gi).
             _db.ChangeTracker.Clear();
+            _logger.LogError(ex, "Loi khong luong khi ap dung push entry {PromptId} (operation={Operation})", entry.PromptId, entry.Operation);
             return Rejected(entry.PromptId, "Khong the ap dung thay doi nay.");
         }
     }
@@ -577,6 +589,25 @@ public class SyncService : ISyncService
 
     private async Task<SyncPushResponse> ApplyUpdateOrConflictAsync(SpaceMembership membership, string? deviceId, Prompt prompt, PushPromptEntry entry, CancellationToken cancellationToken)
     {
+        // Quyet dinh san pham (finding 1, final review): CHI tac gia HOAC thanh vien CanManage
+        // (Owner/Admin) moi duoc sua/xoa mot prompt ma ho KHONG PHAI la tac gia. Bat ky thanh
+        // vien nao cung tao duoc noi dung MOI (INSERT khong qua nhanh nay) va doc duoc moi thu —
+        // gioi han nay CHI ap dung cho mutate (update/delete) mot dong DA TON TAI thuoc nguoi
+        // khac. Kiem tra TRUOC ca 2 nhanh conflict ben duoi (IsDeleted/Version): mot nguoi khong
+        // co quyen khong duoc phep "tham do" trang thai/noi dung remote cua nguoi khac qua duong
+        // RecordConflictAsync (se lo Title/Content trong Remote DTO).
+        if (prompt.AuthorUserID != membership.UserID && !membership.CanManage)
+            return Rejected(entry.PromptId, "Ban khong co quyen sua prompt nay.");
+
+        // Fix round 2 (finding 2, "P11 second half"): mot update (baseVersion co the KHOP voi
+        // Version hien tai) roi vao dung mot dong DA bi soft-delete phai duoc coi la conflict —
+        // khong duoc am tham "hoi sinh" noi dung cu tren mot dong da chet ma khong bao cho ai
+        // biet. Kiem tra nay dung TRUOC ca kiem tra Version ben duoi (ca hai deu dan den
+        // RecordConflictAsync, thu tu khong quan trong ve mat ket qua, nhung IsDeleted la dieu
+        // kien RIENG — mot baseVersion KHOP van phai bi chan neu dong da chet).
+        if (prompt.IsDeleted)
+            return await RecordConflictAsync(prompt, entry, cancellationToken);
+
         if (prompt.Version != entry.BaseVersion)
             return await RecordConflictAsync(prompt, entry, cancellationToken);
 
@@ -687,6 +718,11 @@ public class SyncService : ISyncService
             // space khac" de khong lo thong tin ton tai o noi khac.
             return new SyncPushResponse { PromptId = entry.PromptId, Status = "applied" };
 
+        // Finding 1 (final review, quyet dinh san pham): cung dieu kien voi
+        // ApplyUpdateOrConflictAsync — chi tac gia hoac CanManage moi xoa duoc bai nguoi khac.
+        if (prompt.AuthorUserID != membership.UserID && !membership.CanManage)
+            return Rejected(entry.PromptId, "Ban khong co quyen xoa prompt nay.");
+
         if (prompt.Version != entry.BaseVersion)
             return await RecordConflictAsync(prompt, entry, cancellationToken);
 
@@ -763,6 +799,9 @@ public class SyncService : ISyncService
                 CategoryId = remote.CategoryID,
                 Version = remote.Version,
                 HasConflict = true,
+                // Finding 2: cho client thay ro ben remote co dang bi xoa mem hay khong luc
+                // resolve.
+                IsDeleted = remote.IsDeleted,
                 Tags = [.. remote.PromptTags.Select(pt => pt.Tag?.Name ?? string.Empty)],
                 Variables = [.. remote.Variables.Select(v => new PromptVariableResponse { VarKey = v.VarKey, Label = v.Label, DefaultValue = v.DefaultValue })]
             }
@@ -823,6 +862,16 @@ public class SyncService : ISyncService
         // (dua tren du lieu cu) se la mot dang Last-Write-Wins tran hinh, bi cam.
         if (prompt.Version != conflict.RemoteVersion)
             return OperationResult.Fail("Conflict", "Du lieu tren server da thay doi ke tu khi xung dot nay duoc ghi nhan. Vui long dong bo lai roi thu lai.");
+
+        // Finding 1 (final review, quyet dinh san pham): "keep_local"/"merged" GHI DE noi dung
+        // cua dong prompt -- cung dieu kien voi push (ApplyUpdateOrConflictAsync/PushDeleteAsync):
+        // chi tac gia hoac thanh vien CanManage moi duoc ghi de mot prompt ma ho khong phai tac
+        // gia. "keep_remote" KHONG sua gi ca (xem nhanh ben duoi) nen bat ky ai thay duoc xung
+        // dot nay (da la thanh vien space, xac nhan o tren) van resolve duoc binh thuong -- gioi
+        // han nay CHI ap dung cho 2 resolution THAT SU ghi.
+        if (request.Resolution is "keep_local" or "merged"
+            && prompt.AuthorUserID != membership.UserID && !membership.CanManage)
+            return OperationResult.Fail("Forbidden", "Ban khong co quyen sua prompt nay.");
 
         string? rejectReason = null;
 
