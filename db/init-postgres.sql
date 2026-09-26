@@ -2,10 +2,10 @@
 --   cd AioKin && dotnet ef migrations script -o ../db/init-postgres.sql
 -- (khong dung --idempotent — day la script khoi tao 1 lan cho DB Supabase trong,
 -- xem docs/database.md muc 2.1). Nguon su that la AioKin/Data/Migrations/, khong
--- phai file nay. Sinh lai lan nay (follow-up tag/variable-only versioning, migration
--- AddPromptMetaSig): them cot vault.prompts.meta_sig va cap nhat WHEN clause cua
--- trg_prompts_before_update de bump version/ghi sync_log ca khi CHI tag/variable
--- doi — xem .superpowers/sdd/followup-tag-variable-versioning-report.md.
+-- phai file nay. Sinh lai lan nay: cloud (Supabase) da bi xoa sach schema/bang,
+-- file cu chi phu 11/13 migration (thieu AddDataProtectionKeys, AddDeviceTokens) —
+-- ban nay phu du ca 13 migration, gom 5 schema (core, security, family, vault,
+-- sync) va 24 bang.
 CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
     migration_id character varying(150) NOT NULL,
     product_version character varying(32) NOT NULL,
