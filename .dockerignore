@@ -1,0 +1,30 @@
+# Git and editors
+.git
+.github
+.vs
+.vscode
+.idea
+
+# Build outputs
+**/bin/
+**/obj/
+artifacts/
+
+# Test project (not needed in production image)
+AioKin.Tests/
+
+# Documentation and scripts
+docs/
+scripts/
+*.md
+
+# Local environment and secret configs
+*.local.json
+.env*
+!.env.example
+.mcp.json
+skill.json
+.skillrunner/
+.claude/
+.gitnexus/
+.superpowers/
