@@ -2,8 +2,10 @@ using AioKin.Common;
 using AioKin.Models.InputModel.Auth.User;
 using AioKin.Models.Transfers.ProfileUser;
 using AioKin.Models.ViewModel.Auth.User;
+using AioKin.Services.Auth.Biometric;
 using AioKin.Services.Auth.Email;
 using AioKin.Services.Auth.RefreshToken;
+using AioKin.Services.Auth.Token;
 using AioKin.Services.Auth.User;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -25,17 +27,23 @@ public class AccountController : ControllerBase
     private readonly IUserService _userService;
     private readonly IEmailService _emailService;
     private readonly IRefreshTokenService _refreshTokenService;
+    private readonly IAccessTokenService _accessTokenService;
+    private readonly IBiometricAuthService _biometricAuthService;
     private readonly ILogger<AccountController> _logger;
 
     public AccountController(
         IUserService userService,
         IEmailService emailService,
         IRefreshTokenService refreshTokenService,
+        IAccessTokenService accessTokenService,
+        IBiometricAuthService biometricAuthService,
         ILogger<AccountController> logger)
     {
         _userService = userService;
         _emailService = emailService;
         _refreshTokenService = refreshTokenService;
+        _accessTokenService = accessTokenService;
+        _biometricAuthService = biometricAuthService;
         _logger = logger;
     }
 
@@ -84,12 +92,78 @@ public class AccountController : ControllerBase
             return this.ToActionResult(OperationResult.Fail("InternalError", "Khong cap nhat duoc mat khau."));
 
         await _refreshTokenService.RevokeAllAsync(user.UserCode);
+        await _accessTokenService.RevokeAllForSubjectAsync(user.UserCode);
+
+        // P20: doi mat khau khi dang dang nhap cung phai thu hoi TOAN BO dang ky sinh trac
+        // cua user, giong duong ResetPassword — cung mot ly do "nghi ngo tai khoan bi lo".
+        await _biometricAuthService.RevokeAllForUserAsync(user.UserCode);
 
         if (user.Email is not null)
             await _emailService.SendPasswordChangedNoticeAsync(user.Email, user.Username);
 
         _logger.LogInformation("Password changed for userCode={UserCode}", user.UserCode);
         return Ok(OperationResult.Ok("Doi mat khau thanh cong. Vui long dang nhap lai tren cac thiet bi khac."));
+    }
+
+    /// <summary>Danh sach thiet bi dang dang nhap cua tai khoan nay.</summary>
+    [HttpGet("sessions")]
+    public async Task<IActionResult> GetSessions()
+    {
+        var userCode = User.GetUserCode();
+        if (string.IsNullOrEmpty(userCode))
+            return Unauthorized(OperationResult.Fail("Unauthorized", "Token thieu thong tin nguoi dung."));
+
+        // Claim session_token gio la hash (P11) — id cua chinh request nay suy truc tiep tu
+        // do, khong can bam lai.
+        var currentHash = User.GetSessionToken();
+        var currentId = string.IsNullOrEmpty(currentHash) ? null : TokenHash.PublicId(currentHash);
+
+        var sessions = await _accessTokenService.ListSessionsAsync(userCode);
+
+        var response = sessions.Select(s => new SessionResponse
+        {
+            Id = s.Id,
+            DeviceName = s.Session.DeviceName,
+            Platform = s.Session.Platform,
+            IssuedAtUnix = s.Session.IssuedAtUnix,
+            IsCurrent = s.Id == currentId
+        }).ToList();
+
+        return Ok(OperationResult.Ok(data: response));
+    }
+
+    /// <summary>Dang xuat 1 thiet bi cu the: thu hoi access session va refresh token cung thiet bi do.</summary>
+    [HttpDelete("sessions/{id}")]
+    public async Task<IActionResult> DeleteSession(string id)
+    {
+        var userCode = User.GetUserCode();
+        if (string.IsNullOrEmpty(userCode))
+            return Unauthorized(OperationResult.Fail("Unauthorized", "Token thieu thong tin nguoi dung."));
+
+        // RevokeByIdAsync tu kiem tra id co thuoc ve userCode nay khong va tra ve chinh
+        // session vua bi xoa — khong can list roi tim lai (P8).
+        var revoked = await _accessTokenService.RevokeByIdAsync(userCode, id);
+        if (revoked is null)
+            return NotFound(OperationResult.Fail("NotFound", "Khong tim thay phien dang nhap nay."));
+
+        // Thiet bi khong xac dinh (DeviceId null, vd token cu tu truoc khi co truong nay)
+        // thi bo qua buoc thu hoi theo thiet bi — khong co gi de khop, va khong duoc lam
+        // rong toan bo danh sach refresh token cua user chi vi mot session thieu DeviceId.
+        if (revoked.DeviceId is { } deviceId)
+        {
+            await _refreshTokenService.RevokeAllForDeviceAsync(userCode, deviceId);
+            await _accessTokenService.RevokeForDeviceAsync(userCode, deviceId);
+
+            // Finding 1 (SECURITY): xoa 1 session cu the cung phai thu hoi credential sinh
+            // trac dang ky cho CUNG thiet bi do — token bi lo va tu dang ky duoc sinh trac
+            // khong duoc song sot qua DELETE session. Ket qua bi bo qua co tinh: khong co
+            // credential nao cho thiet bi nay la binh thuong (RevokeAsync tra Fail NotFound),
+            // khong duoc lam hong request xoa session chi vi thiet bi chua tung dang ky sinh
+            // trac.
+            await _biometricAuthService.RevokeAsync(userCode, deviceId);
+        }
+
+        return Ok(OperationResult.Ok("Da dang xuat thiet bi."));
     }
 
     /// <summary>Gui email lien he toi bo phan ho tro tu tai khoan dang dang nhap.</summary>

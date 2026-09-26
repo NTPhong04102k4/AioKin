@@ -1,7 +1,4 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Reflection;
-using System.Security.Claims;
-using System.Text;
 using AioKin.Common;
 using AioKin.Controllers.Auth;
 using AioKin.Data;
@@ -9,6 +6,7 @@ using AioKin.Middleware;
 using AioKin.Models.InputModel.Auth.User;
 using AioKin.Setup;
 using AioKin.Services.Auth.Admin;
+using AioKin.Services.Auth.Biometric;
 using AioKin.Services.Auth.Email;
 using AioKin.Services.Auth.OAuth;
 using AioKin.Services.Auth.Otp;
@@ -19,14 +17,15 @@ using AioKin.Services.Auth.StaffManagement;
 using AioKin.Services.Auth.Token;
 using AioKin.Services.Auth.User;
 using AioKin.Services.Common.Cache;
+using AioKin.Services.Common.Storage;
 using AioKin.Services.Content;
 using AioKin.Services.Family;
+using AioKin.Services.Vault;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using StackExchange.Redis;
 
@@ -38,14 +37,6 @@ const string ExternalAuthScheme = AuthController.ExternalCookieScheme;
 
 // Ten policy CORS — khai o day de UseCors() sau nay khong go lai chuoi.
 const string CorsPolicy = "AioKinCors";
-
-// JwtSecurityTokenHandler doi ten claim khi doc token: "sub" -> ClaimTypes.NameIdentifier.
-// ClaimsPrincipalExtensions.GetUserUuid() doc dung ClaimTypes.NameIdentifier nen anh xa do
-// PHAI giu nguyen. Rieng "jti" thi khong duoc doi ten: GetJti() doc thang "jti", va neu mot
-// ban anh xa nao do nuot mat no thi JwtBlacklistMiddleware im lang cho qua moi token da bi
-// thu hoi — hong o day khong bao loi, chi la logout khong con hieu luc. Remove() la no-op
-// neu khoa khong co trong bang.
-JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Remove(JwtRegisteredClaimNames.Jti);
 
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
@@ -116,7 +107,6 @@ builder.Services.AddSwaggerGen(options =>
         Name = "Authorization",
         Type = SecuritySchemeType.Http,
         Scheme = "bearer",
-        BearerFormat = "JWT",
         In = ParameterLocation.Header,
         Description = "Dan access token vao day; khong can tu go tien to Bearer."
     });
@@ -218,10 +208,10 @@ else
 
 // ─── Service tang Auth ────────────────────────────────────────────────────────
 //
-// Scoped cho cung vong doi voi AioKinDbContext. JwtTokenService khong cham database nhung
+// Scoped cho cung vong doi voi AioKinDbContext. AccessTokenService khong cham database nhung
 // van de Scoped cho dong nhat — gia tao no gan nhu bang khong.
 
-builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IAccessTokenService, AccessTokenService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<ITemporaryPasswordService, TemporaryPasswordService>();
@@ -231,6 +221,7 @@ builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
 builder.Services.AddScoped<IStaffManagementService, StaffManagementService>();
 builder.Services.AddScoped<IOAuthService, OAuthService>();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
+builder.Services.AddScoped<IBiometricAuthService, BiometricAuthService>();
 
 // ─── Service tang Content ─────────────────────────────────────────────────────
 //
@@ -241,46 +232,45 @@ builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
 builder.Services.AddScoped<IScheduleService, ScheduleService>();
 builder.Services.AddScoped<IFamilyContext, FamilyContext>();
 builder.Services.AddScoped<IFamilyService, FamilyService>();
+builder.Services.AddScoped<ISpaceContext, SpaceContext>();
+builder.Services.AddScoped<ISpaceService, SpaceService>();
+builder.Services.AddScoped<IPromptBrowseService, PromptBrowseService>();
+builder.Services.AddScoped<ISyncService, SyncService>();
+
+// IBlobStorageService la OPTIONAL (xem SyncService.PullAsync, ruling P13): chi dang ky khi co
+// Storage:BaseUrl cau hinh — cung "skip gracefully khi thieu" nhu IEmailService/BrevoEmailService
+// o tren. Khong dang ky thi DI tra null cho tham so optional cua SyncService — pull van tra ve
+// snapshot binh thuong (upload audit la BEST-EFFORT, xem SyncService.BuildSnapshotFallbackAsync),
+// chi khong co BackupSnapshot audit trail.
+var storageBaseUrl = config["Storage:BaseUrl"];
+if (!string.IsNullOrWhiteSpace(storageBaseUrl))
+{
+    builder.Services.AddHttpClient<IBlobStorageService, SupabaseStorageService>(http =>
+    {
+        http.BaseAddress = new Uri(storageBaseUrl.TrimEnd('/') + "/");
+        // Fix round 1, finding 4: Supabase Storage REST API doi CA HAI header — "apikey" VA
+        // "Authorization: Bearer <service key>" (thieu Authorization thi API tra 401 du apikey
+        // dung, ban truoc chi dat mot minh apikey).
+        http.DefaultRequestHeaders.Add("apikey", config["Storage:ServiceKey"]);
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config["Storage:ServiceKey"]);
+        http.Timeout = TimeSpan.FromSeconds(30);
+    });
+}
 
 // ─── Xac thuc ─────────────────────────────────────────────────────────────────
 
 var authentication = builder.Services.AddAuthentication(options =>
 {
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultAuthenticateScheme = OpaqueAccessTokenAuthenticationHandler.SchemeName;
+    options.DefaultChallengeScheme = OpaqueAccessTokenAuthenticationHandler.SchemeName;
 });
 
-authentication.AddJwtBearer(options =>
-{
-    var key = config["Jwt:Key"]
-        ?? throw new InvalidOperationException("Thieu Jwt:Key — khong the validate access token.");
-
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuer = true,
-        ValidIssuer = JwtConfiguration.ResolveIssuer(config),
-
-        ValidateAudience = true,
-        // Nhieu audience: token ky cho web va cho app deu phai qua duoc cung mot API.
-        ValidAudiences = JwtConfiguration.ResolveAudiences(config),
-
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
-
-        ValidateLifetime = true,
-        // Mac dinh la 5 phut: mot token da het han van dung duoc them 5 phut nua, bien
-        // "expires_in" tra cho client thanh con so khong dung.
-        ClockSkew = TimeSpan.Zero,
-
-        // JwtTokenService ghi role bang ClaimTypes.Role — giu dung the do de
-        // [Authorize(Roles = ...)] va ClaimsPrincipalExtensions.GetRole() cung doc mot cho.
-        RoleClaimType = ClaimTypes.Role,
-        NameClaimType = AioKinClaims.Username
-    };
-});
+// Opaque access token: xem chu thich trong OpaqueAccessTokenAuthenticationHandler.
+authentication.AddScheme<AuthenticationSchemeOptions, OpaqueAccessTokenAuthenticationHandler>(
+    OpaqueAccessTokenAuthenticationHandler.SchemeName, _ => { });
 
 // Cookie tam giu danh tinh giua luc nha cung cap redirect ve va luc OAuthService doc ho so.
-// No song vai giay, khong phai phien dang nhap — phien that la JWT cap sau do.
+// No song vai giay, khong phai phien dang nhap — phien that la access token opaque cap sau do.
 authentication.AddCookie(ExternalAuthScheme, options =>
 {
     options.Cookie.Name = "aiokin.external";
@@ -403,13 +393,11 @@ app.UseCors(CorsPolicy);
 
 // Sau UseCors de phan hoi 429 van mang header CORS — thieu no thi trinh duyet bao loi
 // CORS thay vi hien dung "ban thao tac qua nhanh". Truoc UseAuthentication de tu choi
-// som, khoi ton cong giai ma JWT cho request se bi chan.
+// som, khoi ton cong tra cuu Redis cho request se bi chan.
 app.UseRateLimiter();
 
-// Thu tu bat buoc — xem chu thich trong JwtBlacklistMiddleware: UseAuthentication dung
-// principal, UseJwtBlacklist doc jti tu chinh principal do, roi moi den UseAuthorization.
+// UseAuthentication truoc UseAuthorization — thu tu bat buoc cua ASP.NET Core.
 app.UseAuthentication();
-app.UseJwtBlacklist();
 app.UseAuthorization();
 
 app.MapControllers();

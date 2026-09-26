@@ -15,7 +15,7 @@ public class AdminAuthService : IAdminAuthService
     private readonly AioKinDbContext _db;
     private readonly IConfiguration _configuration;
     private readonly ISuperAdminGuardService _superAdminGuard;
-    private readonly IJwtTokenService _tokenService;
+    private readonly IAccessTokenService _accessTokenService;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly ILogger<AdminAuthService> _logger;
 
@@ -23,14 +23,14 @@ public class AdminAuthService : IAdminAuthService
         AioKinDbContext db,
         IConfiguration configuration,
         ISuperAdminGuardService superAdminGuard,
-        IJwtTokenService tokenService,
+        IAccessTokenService accessTokenService,
         IRefreshTokenService refreshTokenService,
         ILogger<AdminAuthService> logger)
     {
         _db = db;
         _configuration = configuration;
         _superAdminGuard = superAdminGuard;
-        _tokenService = tokenService;
+        _accessTokenService = accessTokenService;
         _refreshTokenService = refreshTokenService;
         _logger = logger;
     }
@@ -63,14 +63,18 @@ public class AdminAuthService : IAdminAuthService
 
         var roleName = staff.Role?.RoleName ?? Roles.STAFF;
 
+        // Dang nhap admin khong co truong thiet bi tren DTO (chua trong pham vi ke hoach nay) —
+        // van sinh mot dinh danh thiet bi server-side de phien luon co the truy va thu hoi rieng.
+        var device = DeviceInfo.Resolve(null, null, null);
+
         return new LoginAdminResponse
         {
             FullName = staff.FullName,
             Username = staff.Username,
             Role = roleName,
-            Token = _tokenService.CreateForStaff(staff, roleName),
-            RefreshToken = await _refreshTokenService.GenerateAsync(staff.Username, roleName),
-            ExpiresIn = _tokenService.AccessTokenLifetimeSeconds
+            Token = await _accessTokenService.CreateForStaffAsync(staff, roleName, device),
+            RefreshToken = await _refreshTokenService.GenerateAsync(staff.Username, roleName, device),
+            ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds
         };
     }
 
@@ -176,6 +180,7 @@ public class AdminAuthService : IAdminAuthService
         // Moi phien cu phai chet theo mat khau cu, khong thi doi mat khau khong duoi duoc
         // ke dang giu refresh token.
         await _refreshTokenService.RevokeAllAsync(target.Username);
+        await _accessTokenService.RevokeAllForSubjectAsync(target.Username);
 
         _logger.LogInformation("Staff password updated: staffId={StaffId}, by={Caller}", staffId, callerUsername);
         return OperationResult.Ok("Doi mat khau thanh cong.");
@@ -226,6 +231,7 @@ public class AdminAuthService : IAdminAuthService
         await _db.SaveChangesAsync();
 
         await _refreshTokenService.RevokeAllAsync(target.Username);
+        await _accessTokenService.RevokeAllForSubjectAsync(target.Username);
 
         _logger.LogWarning("SuperAdmin password recovered for username={Username}", target.Username);
         return OperationResult.Ok("Da dat lai mat khau SuperAdmin. Vui long dang nhap lai.",

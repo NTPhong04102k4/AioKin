@@ -60,6 +60,10 @@ public static class OperationResultHttpExtensions
         "InternalError" => StatusCodes.Status500InternalServerError,
         "EmailSendFailed" => StatusCodes.Status503ServiceUnavailable,
         "OtpGenerationFailed" => StatusCodes.Status503ServiceUnavailable,
+        // Ruling P13 (progress.md, Task 3): pull khong the phuc vu (retention da het VA khong co
+        // blob storage de tao snapshot, hoac blob storage loi luc tao snapshot) — loi ha tang,
+        // khong phai loi client.
+        "SyncUnavailable" => StatusCodes.Status503ServiceUnavailable,
 
         // 400 Bad Request — fallback cho loi nghiep vu chua phan loai
         _ => StatusCodes.Status400BadRequest

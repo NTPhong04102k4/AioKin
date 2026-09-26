@@ -1,20 +1,29 @@
+using AioKin.Services.Auth.Token;
+
 namespace AioKin.Services.Auth.RefreshToken;
 
 /// <summary>
-/// Refresh token opaque (khong phai JWT) luu trong Redis. Vi trang thai nam o server nen
-/// thu hoi co hieu luc ngay lap tuc — dieu ma mot JWT tu chua khong lam duoc.
+/// Refresh token opaque, luu trong Redis duoi khoa sha256(token). Trang thai nam o server
+/// nen thu hoi co hieu luc ngay lap tuc.
 /// </summary>
 public interface IRefreshTokenService
 {
-    /// <summary>Tao token moi va luu vao Redis. Tra ve chuoi token de gui cho client.</summary>
-    Task<string> GenerateAsync(string userCode, string role);
+    /// <summary>
+    /// Tao token moi va luu vao Redis. <paramref name="device"/> co the DeviceInfo.Unknown
+    /// (client cu chua gui hoac duong dang nhap khong doc duoc thiet bi) — cung dang tham so
+    /// voi IAccessTokenService.CreateFor*Async de hai ben nhat quan.
+    /// </summary>
+    Task<string> GenerateAsync(string subject, string role, DeviceInfo device);
 
-    /// <summary>Xac thuc. Tra ve (userCode, role) neu hop le, null neu het han hoac khong ton tai.</summary>
-    Task<(string UserCode, string Role)?> ValidateAsync(string token);
+    /// <summary>Xac thuc. Null neu het han hoac khong ton tai.</summary>
+    Task<RefreshTokenPayload?> ValidateAsync(string token);
 
     /// <summary>Thu hoi mot token cu the — dung khi logout hoac khi xoay vong token.</summary>
     Task RevokeAsync(string token);
 
-    /// <summary>Thu hoi tat ca token cua mot user — dung khi doi mat khau hoac nghi ngo lo tai khoan.</summary>
-    Task RevokeAllAsync(string userCode);
+    /// <summary>Thu hoi tat ca token cua mot subject — dung khi doi mat khau hoac nghi ngo lo tai khoan.</summary>
+    Task RevokeAllAsync(string subject);
+
+    /// <summary>Thu hoi tat ca token cua mot subject PHAT TU mot thiet bi cu the — dung khi "dang xuat thiet bi nay".</summary>
+    Task RevokeAllForDeviceAsync(string subject, string? deviceId);
 }

@@ -420,5 +420,4 @@ skill.json
 .skillrunner/
 AioKin/appsettings.json
 AioKin/appsettings.Development.json
-
-AioKin.Tests/
+AioKin/appsettings.Production.json

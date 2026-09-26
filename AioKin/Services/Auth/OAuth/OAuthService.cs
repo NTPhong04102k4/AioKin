@@ -18,20 +18,20 @@ public class OAuthService : IOAuthService
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IUserService _userService;
-    private readonly IJwtTokenService _tokenService;
+    private readonly IAccessTokenService _accessTokenService;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly ILogger<OAuthService> _logger;
 
     public OAuthService(
         IHttpClientFactory httpClientFactory,
         IUserService userService,
-        IJwtTokenService tokenService,
+        IAccessTokenService accessTokenService,
         IRefreshTokenService refreshTokenService,
         ILogger<OAuthService> logger)
     {
         _httpClientFactory = httpClientFactory;
         _userService = userService;
-        _tokenService = tokenService;
+        _accessTokenService = accessTokenService;
         _refreshTokenService = refreshTokenService;
         _logger = logger;
     }
@@ -207,14 +207,21 @@ public class OAuthService : IOAuthService
         }
     }
 
-    private async Task<OAuthResult> IssueTokensAsync(UserDb user) => new()
+    private async Task<OAuthResult> IssueTokensAsync(UserDb user)
     {
-        Success = true,
-        Token = _tokenService.CreateForCustomer(user),
-        RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER),
-        ExpiresIn = _tokenService.AccessTokenLifetimeSeconds,
-        UserData = UserMapper.ToLoginResponse(user)
-    };
+        // Popup redirect SSO khong co truong thiet bi (chua trong pham vi ke hoach nay) — van
+        // sinh mot dinh danh thiet bi server-side de phien luon co the truy va thu hoi rieng.
+        var device = DeviceInfo.Resolve(null, null, null);
+
+        return new OAuthResult
+        {
+            Success = true,
+            Token = await _accessTokenService.CreateForCustomerAsync(user, device),
+            RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER, device),
+            ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
+            UserData = UserMapper.ToLoginResponse(user)
+        };
+    }
 
     private static string ReadString(JsonElement element, string property)
         => element.TryGetProperty(property, out var value) ? value.GetString() ?? string.Empty : string.Empty;

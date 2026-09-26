@@ -1,5 +1,6 @@
 using AioKin.Data;
 using AioKin.Data.Entities.Family;
+using AioKin.Data.Entities.Vault;
 using AioKin.Models.InputModel.Auth.User;
 using AioKin.Models.InputModel.Family;
 using AioKin.Models.ViewModel.Family;
@@ -48,6 +49,13 @@ public class FamilyService : IFamilyService
             FamilyID = family.FamilyID,
             UserID = userId,
             MemberRole = FamilyMemberRole.Owner
+        });
+        _db.Spaces.Add(new Space
+        {
+            SpaceType = SpaceType.Family,
+            Name = family.Name,
+            OwnerUserID = userId,
+            FamilyID = family.FamilyID
         });
 
         await _db.SaveChangesAsync(cancellationToken);

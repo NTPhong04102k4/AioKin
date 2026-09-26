@@ -57,7 +57,9 @@ jobs:
         with:
           dotnet-version: "9.0.x"
           cache: true
-          cache-dependency-path: AioKin/AioKin.csproj
+          cache-dependency-path: |
+            AioKin/AioKin.csproj
+            AioKin.Tests/AioKin.Tests.csproj
 
       - name: Restore
         run: dotnet restore AioKin.sln

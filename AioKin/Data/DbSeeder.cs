@@ -2,7 +2,10 @@ using AioKin.Common;
 using AioKin.Data.Entities.Core;
 using AioKin.Data.Entities.Family;
 using AioKin.Data.Entities.Security;
+using AioKin.Data.Entities.Vault;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace AioKin.Data;
 
@@ -24,6 +27,7 @@ public static class DbSeeder
         await SeedDefaultLocationAsync(db, logger);
         await SeedSuperAdminAsync(db, config, logger);
         await SeedDiscoveryItemsAsync(db, logger);
+        await BackfillFamilySpacesAsync(db, logger);
     }
 
     private static async Task SeedRolesAsync(AioKinDbContext db, ILogger logger)
@@ -49,11 +53,20 @@ public static class DbSeeder
     /// <summary>
     /// Bo rule CASL mac dinh cho tung role.
     ///
-    /// Chi ghi vao role dang de rong (<c>[]</c>) — bo rule la thu duoc sua bang tay tren
-    /// database, va mot seeder ghi de moi lan khoi dong se lang le xoa cong sua do.
+    /// Role dang de rong (<c>[]</c>): gan nguyen van chuoi rules — bootstrap lan dau, giu
+    /// dinh dang da viet tay ben duoi.
+    ///
+    /// Role da co rule tu truoc (database that, hoac lan seed truoc do): CHI bo sung cap
+    /// SUBJECT+ACTION con thieu (xem <see cref="AppendMissingRules"/>), khong ghi de rule da
+    /// co — bo rule la thu duoc sua bang tay tren database, va mot seeder ghi de moi lan
+    /// khoi dong se lang le xoa cong sua do. Neu chi seed-khi-rong (nhu ban cu), mot database
+    /// that/da migrate se khong bao gio nhan duoc rule moi them vao "wanted" o duoi (vi du
+    /// Space/Prompt/Category/Tag) sau lan bootstrap dau tien — day la ly do can bo sung logic
+    /// nay (Ruling D2, xem progress.md).
     ///
     /// THU TU PHAN TU LA NGU NGHIA: rule dung sau thang rule dung truoc. Chuoi duoi day
-    /// duoc luu nguyen van va phat ra nguyen thu tu — dao dong la doi luat.
+    /// duoc luu nguyen van va phat ra nguyen thu tu cho lan bootstrap dau — dao dong la doi
+    /// luat. Rule bo sung sau nay luon duoc APPEND vao cuoi, khong bao gio chen giua.
     /// </summary>
     private static async Task SeedRolePermissionsAsync(AioKinDbContext db, ILogger logger)
     {
@@ -72,6 +85,12 @@ public static class DbSeeder
         // ScheduleItem khong kem dieu kien "cua chinh minh": endpoint /todos da gioi han
         // theo token roi, va DTO ben app khong phat userId ra nen mot dieu kien
         // {"userId": ...} se khong bao gio so khop duoc.
+        // 4 dong cuoi (Space/Prompt/Category/Tag) dung "manage" rong hon cach Family lam
+        // ("read"/"create" rieng le): pham vi truy cap thuc su da bi gioi han o tang service
+        // boi ISpaceContext (thanh vien space + CanManage/author check), giong cach
+        // FamilyMember.SubjectType chi can rule "read" don gian vi IFamilyContext moi la
+        // cong gac that su. CASL o day chi xac nhan role Customer duoc dung toi cac loai
+        // subject nay.
         const string customerRules = $$"""
             [
               {"action":"read","subject":"{{DiscoveryItem.SubjectType}}"},
@@ -80,7 +99,11 @@ public static class DbSeeder
               {"action":["read","create"],"subject":"{{Family.SubjectType}}"},
               {"action":["update","delete"],"subject":"{{Family.SubjectType}}","inverted":true,"reason":"Chi chu ho moi sua duoc thong tin gia dinh."},
               {"action":"read","subject":"{{FamilyMember.SubjectType}}"},
-              {"action":["read","create"],"subject":"{{FamilyInvite.SubjectType}}"}
+              {"action":["read","create"],"subject":"{{FamilyInvite.SubjectType}}"},
+              {"action":"manage","subject":"{{Space.SubjectType}}"},
+              {"action":"manage","subject":"{{Prompt.SubjectType}}"},
+              {"action":"manage","subject":"{{Category.SubjectType}}"},
+              {"action":"manage","subject":"{{Tag.SubjectType}}"}
             ]
             """;
 
@@ -100,12 +123,18 @@ public static class DbSeeder
             if (!wanted.TryGetValue(role.RoleName, out var rules))
                 continue;
 
-            // Rong hoac "[]" = chua ai dat rule. Bat ky gia tri nao khac deu la co chu dich.
-            if (!string.IsNullOrWhiteSpace(role.Permissions) && role.Permissions.Trim() != "[]")
+            // Rong hoac "[]" = chua ai dat rule — bootstrap lan dau, gan nguyen van.
+            if (string.IsNullOrWhiteSpace(role.Permissions) || role.Permissions.Trim() == "[]")
+            {
+                role.Permissions = rules;
+                updated.Add(role.RoleName);
                 continue;
+            }
 
-            role.Permissions = rules;
-            updated.Add(role.RoleName);
+            // Da co rule: chi bo sung cap SUBJECT+ACTION con thieu so voi "wanted", khong
+            // dung lai neu khong thieu gi ca (giu nguyen van chuoi da co, kho khong doc lai).
+            if (AppendMissingRules(role, rules, logger))
+                updated.Add(role.RoleName);
         }
 
         if (updated.Count == 0)
@@ -113,6 +142,80 @@ public static class DbSeeder
 
         await db.SaveChangesAsync();
         logger.LogInformation("Seeded permission cho {Count} role: {Roles}", updated.Count, string.Join(", ", updated));
+    }
+
+    /// <summary>
+    /// So sanh rule "wanted" voi rule da co cua 1 role theo chu ky (subject, inverted,
+    /// tap hop action da sap xep) — bo qua khac biet o "reason" (chi la mo ta). Rule wanted
+    /// nao chua co chu ky trung thi duoc DeepClone va APPEND vao cuoi mang JSON hien co.
+    /// Tra ve false (khong dung SaveChanges) neu khong co gi thieu, de tranh ghi lai
+    /// Permissions bang mot chuoi JSON reserialize khac byte voi ban goc khi khong can thiet.
+    ///
+    /// Rule CASL hop le nhung ngoai du doan cua RuleSignature (vi du "subject" la MANG
+    /// thay vi 1 chuoi — CASL cho phep dieu nay; hoac Permissions khong con la JSON hop le
+    /// nua vi ly do gi do) se lam JsonNode.Parse/AsArray/GetValue nem loi. Ban CU chi seed
+    /// khi rong nen chua bao gio gap truong hop nay; ban MOI nay chu dong doc lai rule da
+    /// co nen PHAI chiu duoc hinh dang la — bat loi, ghi Warning, va bo qua BO SUNG cho
+    /// dung role do (giu nguyen Permissions cu) thay vi lam SeedAsync nem loi va keo sap
+    /// ca ung dung luc khoi dong.
+    /// </summary>
+    private static bool AppendMissingRules(Role role, string wantedRulesJson, ILogger logger)
+    {
+        try
+        {
+            var existingArray = JsonNode.Parse(role.Permissions!)?.AsArray();
+            var wantedArray = JsonNode.Parse(wantedRulesJson)?.AsArray();
+            if (existingArray is null || wantedArray is null)
+                return false;
+
+            var existingSignatures = existingArray
+                .Where(n => n is not null)
+                .Select(n => RuleSignature(n!))
+                .ToHashSet(StringComparer.Ordinal);
+
+            var missing = wantedArray
+                .Where(n => n is not null && !existingSignatures.Contains(RuleSignature(n!)))
+                .ToList();
+
+            if (missing.Count == 0)
+                return false;
+
+            foreach (var rule in missing)
+                existingArray.Add(rule!.DeepClone());
+
+            role.Permissions = existingArray.ToJsonString();
+            return true;
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or ArgumentException)
+        {
+            // Final review finding 3: JsonNode.Parse nem ArgumentException (khong phai
+            // JsonException) tren mot JSON object co key trung nhau (vi du Permissions bi sua
+            // tay thanh {"action":"x","action":"y",...}) — cot Permissions la string thuong,
+            // khong co rang buoc JSON o tang DB nen truong hop nay hoan toan co the xay ra.
+            // Thieu nhanh nay thi loi vuot qua catch cu va lam sap ung dung ngay luc khoi dong,
+            // dung nguoc lai muc dich cua Ruling D2 (bo sung an toan, khong bao gio crash).
+            logger.LogWarning(ex,
+                "Bo qua bo sung permission cho role {RoleName}: rule hien co (hoac rule wanted) co hinh dang CASL ngoai du doan cua bo so sanh (vi du subject dang mang, hoac JSON co key trung nhau).",
+                role.RoleName);
+            return false;
+        }
+    }
+
+    /// <summary>Chu ky nhan dang 1 rule CASL: subject + co inverted khong + tap action da sap xep.</summary>
+    private static string RuleSignature(JsonNode rule)
+    {
+        var obj = rule.AsObject();
+        var subject = obj["subject"]?.GetValue<string>() ?? string.Empty;
+        var inverted = obj["inverted"] is JsonValue invertedNode && invertedNode.GetValue<bool>();
+
+        IEnumerable<string> actions = obj["action"] switch
+        {
+            JsonArray arr => arr.Where(a => a is not null).Select(a => a!.GetValue<string>()),
+            JsonValue val => new[] { val.GetValue<string>() },
+            _ => Array.Empty<string>()
+        };
+
+        return $"{subject}|{inverted}|{string.Join(",", actions.OrderBy(a => a, StringComparer.Ordinal))}";
     }
 
     private static async Task SeedDefaultLocationAsync(AioKinDbContext db, ILogger logger)
@@ -248,5 +351,30 @@ public static class DbSeeder
 
         await db.SaveChangesAsync();
         logger.LogInformation("Seeded {Count} the Kham pha.", seeds.Length);
+    }
+
+    /// <summary>
+    /// Gia dinh tao truoc plan nay chua co Space tuong ung — Prompt domain se khong thay
+    /// gia dinh do neu khong backfill. Idempotent: chi tao cho family chua co space.
+    /// </summary>
+    private static async Task BackfillFamilySpacesAsync(AioKinDbContext db, ILogger logger)
+    {
+        var missing = await db.Families
+            .Where(f => f.IsActive && !db.Spaces.Any(s => s.FamilyID == f.FamilyID))
+            .ToListAsync();
+
+        if (missing.Count == 0)
+            return;
+
+        db.Spaces.AddRange(missing.Select(f => new Space
+        {
+            SpaceType = SpaceType.Family,
+            Name = f.Name,
+            OwnerUserID = f.OwnerUserID,
+            FamilyID = f.FamilyID
+        }));
+
+        await db.SaveChangesAsync();
+        logger.LogInformation("Backfilled {Count} family space(s).", missing.Count);
     }
 }

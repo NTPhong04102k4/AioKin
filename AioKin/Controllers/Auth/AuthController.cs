@@ -5,6 +5,7 @@ using AioKin.Models.Transfers.ProfileUser;
 using AioKin.Models.ViewModel.Auth.User;
 using AioKin.Services.Auth.Email;
 using AioKin.Services.Auth.OAuth;
+using AioKin.Services.Auth.Biometric;
 using AioKin.Services.Auth.Otp;
 using AioKin.Services.Auth.PasswordUser;
 using AioKin.Services.Auth.RefreshToken;
@@ -45,7 +46,8 @@ public class AuthController : ControllerBase
     private readonly ITemporaryPasswordService _tempPasswordService;
     private readonly IRedisService _redis;
     private readonly IRefreshTokenService _refreshTokenService;
-    private readonly IJwtTokenService _tokenService;
+    private readonly IAccessTokenService _accessTokenService;
+    private readonly IBiometricAuthService _biometricAuthService;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
@@ -57,7 +59,8 @@ public class AuthController : ControllerBase
         ITemporaryPasswordService tempPasswordService,
         IRedisService redis,
         IRefreshTokenService refreshTokenService,
-        IJwtTokenService tokenService,
+        IAccessTokenService accessTokenService,
+        IBiometricAuthService biometricAuthService,
         ILogger<AuthController> logger)
     {
         _configuration = configuration;
@@ -68,7 +71,8 @@ public class AuthController : ControllerBase
         _tempPasswordService = tempPasswordService;
         _redis = redis;
         _refreshTokenService = refreshTokenService;
-        _tokenService = tokenService;
+        _accessTokenService = accessTokenService;
+        _biometricAuthService = biometricAuthService;
         _logger = logger;
     }
 
@@ -130,11 +134,13 @@ public class AuthController : ControllerBase
 
         await _userService.RecordLoginAttemptAsync(user.UserUUID, 0, false, null, DateTime.UtcNow);
 
+        var device = DeviceInfo.Resolve(model.DeviceId, model.DeviceName, model.Platform);
+
         return Ok(new TokenResponse
         {
-            AccessToken = _tokenService.CreateForCustomer(user),
-            RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER),
-            ExpiresIn = _tokenService.AccessTokenLifetimeSeconds,
+            AccessToken = await _accessTokenService.CreateForCustomerAsync(user, device),
+            RefreshToken = await _refreshTokenService.GenerateAsync(user.UserCode, Roles.CUSTOMER, device),
+            ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             TokenType = "Bearer",
             Scope = Roles.CUSTOMER
         });
@@ -225,8 +231,9 @@ public class AuthController : ControllerBase
 
         await _redis.DeleteAsync(RedisKeys.Registration(model.Email));
 
-        var accessToken = _tokenService.CreateForCustomer(createdUser);
-        var refreshToken = await _refreshTokenService.GenerateAsync(createdUser.UserCode, Roles.CUSTOMER);
+        var device = DeviceInfo.Resolve(model.DeviceId, model.DeviceName, model.Platform);
+        var accessToken = await _accessTokenService.CreateForCustomerAsync(createdUser, device);
+        var refreshToken = await _refreshTokenService.GenerateAsync(createdUser.UserCode, Roles.CUSTOMER, device);
 
         // Email chao mung khong duoc lam hong dang ky — gui that bai thi chi ghi log.
         if (createdUser.Email is not null)
@@ -236,7 +243,7 @@ public class AuthController : ControllerBase
         {
             accessToken,
             refreshToken,
-            expiresIn = _tokenService.AccessTokenLifetimeSeconds,
+            expiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             tokenType = "Bearer",
             user = UserMapper.ToLoginResponse(createdUser)
         }));
@@ -363,6 +370,12 @@ public class AuthController : ControllerBase
         // Doi mat khau phai duoi moi phien cu — nguoi dung dat lai mat khau thuong la vi
         // nghi ngo tai khoan bi lo.
         await _refreshTokenService.RevokeAllAsync(user.UserCode);
+        await _accessTokenService.RevokeAllForSubjectAsync(user.UserCode);
+
+        // P20: dat lai mat khau cung phai thu hoi TOAN BO dang ky sinh trac cua user — mat
+        // khau bi lo (ly do dan den reset) thi ke chiem duoc no cung khong duoc giu lai duong
+        // dang nhap sinh trac da dang ky truoc do.
+        await _biometricAuthService.RevokeAllForUserAsync(user.UserCode);
 
         if (user.Email is not null)
             await _emailService.SendPasswordChangedNoticeAsync(user.Email, user.Username);
@@ -383,11 +396,28 @@ public class AuthController : ControllerBase
             return this.ToActionResult(OperationResult.Fail("InvalidRefreshToken",
                 "Refresh token khong hop le hoac da het han. Vui long dang nhap lai."));
 
-        var (subject, role) = payload.Value;
+        var (subject, role, payloadDeviceId, payloadDeviceName, payloadPlatform) = payload;
 
         // Thu hoi truoc khi cap token moi: neu cap truoc roi moi thu hoi va co su co o
         // giua, ca hai token deu con song.
         await _refreshTokenService.RevokeAsync(model.RefreshToken);
+
+        // Uu tien thiet bi da luu trong PAYLOAD (tu luc dang nhap/refresh truoc), chi roi ve
+        // truong client gui kem request khi payload khong co: neu uu tien request, ke dang giu
+        // refresh token cua thiet bi A co the tu xung minh la thiet bi B (gui deviceId cua B
+        // trong body) va lam token moi cuop lay dinh danh cua B — lan RevokeForDeviceAsync/
+        // RevokeAllForDeviceAsync ke tiep tren "thiet bi B" se giet nham phien that cua B.
+        // Payload-first cung tranh sinh unknown-<guid> MOI moi lan refresh cho client cu/native
+        // khong gui lai deviceId (Expo gap G7).
+        var deviceId = string.IsNullOrWhiteSpace(payloadDeviceId) ? model.DeviceId : payloadDeviceId;
+        var deviceName = string.IsNullOrWhiteSpace(payloadDeviceName) ? model.DeviceName : payloadDeviceName;
+        var platform = string.IsNullOrWhiteSpace(payloadPlatform) ? model.Platform : payloadPlatform;
+        var device = DeviceInfo.Resolve(deviceId, deviceName, platform);
+
+        // Bo access session cu cua chinh thiet bi nay truoc khi cap cai moi — neu khong no
+        // van song toi khi het TTL, khien danh sach phien hien thi hai ban ghi cho cung mot
+        // thiet bi sau moi lan refresh.
+        await _accessTokenService.RevokeForDeviceAsync(subject, device.DeviceId!);
 
         string accessToken;
 
@@ -398,7 +428,7 @@ public class AuthController : ControllerBase
             if (user is null || !user.IsActive || user.IsLocked)
                 return this.ToActionResult(OperationResult.Fail("UserInactive", "Tai khoan khong con hoat dong."));
 
-            accessToken = _tokenService.CreateForCustomer(user);
+            accessToken = await _accessTokenService.CreateForCustomerAsync(user, device);
         }
         else
         {
@@ -409,43 +439,50 @@ public class AuthController : ControllerBase
 
             // Doc lai role tu database thay vi tin role trong refresh token: quyen co the
             // da bi ha ke tu luc dang nhap.
-            accessToken = _tokenService.CreateForStaff(staff, staff.Role?.RoleName ?? role);
+            accessToken = await _accessTokenService.CreateForStaffAsync(staff, staff.Role?.RoleName ?? role, device);
             role = staff.Role?.RoleName ?? role;
         }
 
         return Ok(new TokenResponse
         {
             AccessToken = accessToken,
-            RefreshToken = await _refreshTokenService.GenerateAsync(subject, role),
-            ExpiresIn = _tokenService.AccessTokenLifetimeSeconds,
+            RefreshToken = await _refreshTokenService.GenerateAsync(subject, role, device),
+            ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             TokenType = "Bearer",
             Scope = role
         });
     }
 
-    /// <summary>Dang xuat: dua JTI vao blacklist Redis nen access token bi thu hoi that su.</summary>
+    /// <summary>
+    /// Dang xuat: thu hoi access token cua request nay va refresh token cua CUNG thiet bi do.
+    /// Logout phai dong nghia voi DELETE /account/sessions/{id} cho chinh phien nay — client
+    /// bo trong refreshToken (vd khong con giu trong bo nho) khong duoc phep de refresh token
+    /// cua thiet bi song sot, vi khong thi "dang xuat" tren UI van con dang nhap duoc lai bang
+    /// refresh token cu.
+    /// </summary>
     [HttpPost("logout")]
     [Authorize]
     public async Task<IActionResult> Logout([FromBody] LogoutRequest? request = null)
     {
-        var jti = User.GetJti();
-        if (!string.IsNullOrEmpty(jti))
+        // Claim session_token gio la hash (P11), khong con raw token — doc session truoc de
+        // biet DeviceId (can cho nhanh fallback ben duoi) roi moi revoke thang bang hash.
+        var sessionHash = User.GetSessionToken();
+        AccessTokenSession? session = null;
+        if (!string.IsNullOrEmpty(sessionHash))
         {
-            // TTL = tuoi tho token + 1 phut, du phu toi khi token het han tu nhien.
-            // Giu lau hon chi ton bo nho Redis ma khong them bao ve gi.
-            await _redis.SetStringAsync(
-                RedisKeys.JwtBlacklist(jti),
-                "1",
-                TimeSpan.FromSeconds(_tokenService.AccessTokenLifetimeSeconds + 60));
+            session = await _accessTokenService.GetByHashAsync(sessionHash);
+            await _accessTokenService.RevokeByHashAsync(sessionHash);
         }
 
         if (!string.IsNullOrEmpty(request?.RefreshToken))
             await _refreshTokenService.RevokeAsync(request.RefreshToken);
+        else if (session?.DeviceId is { } deviceId)
+            await _refreshTokenService.RevokeAllForDeviceAsync(session.Subject, deviceId);
 
         return Ok(OperationResult.Ok("Dang xuat thanh cong."));
     }
 
-    /// <summary>Dang xuat khoi moi thiet bi: thu hoi toan bo refresh token cua tai khoan.</summary>
+    /// <summary>Dang xuat khoi moi thiet bi: thu hoi toan bo access va refresh token cua tai khoan.</summary>
     [HttpPost("logout-all")]
     [Authorize]
     public async Task<IActionResult> LogoutAll()
@@ -454,16 +491,18 @@ public class AuthController : ControllerBase
         if (string.IsNullOrEmpty(subject))
             return Unauthorized(OperationResult.Fail("Unauthorized", "Token thieu thong tin dinh danh."));
 
-        var jti = User.GetJti();
-        if (!string.IsNullOrEmpty(jti))
-        {
-            await _redis.SetStringAsync(
-                RedisKeys.JwtBlacklist(jti),
-                "1",
-                TimeSpan.FromSeconds(_tokenService.AccessTokenLifetimeSeconds + 60));
-        }
-
+        await _accessTokenService.RevokeAllForSubjectAsync(subject);
         await _refreshTokenService.RevokeAllAsync(subject);
+
+        // Finding 1 (SECURITY, overrides P20): logout-all cung phai thu hoi TOAN BO credential
+        // sinh trac cua user — mot access/refresh token bi lo va tu dang ky duoc sinh trac cho
+        // mot thiet bi khong duoc song sot qua "dang xuat khoi tat ca thiet bi". Subject o day
+        // co the la UserCode (customer) hoac Username (staff) — RevokeAllForUserAsync tu
+        // khong lam gi neu khong tim thay user theo userCode (nhanh staff), nen goi vo dieu
+        // kien o day la an toan cho ca hai nhanh, giong cach AuthController.ResetPassword va
+        // AccountController.ChangePassword (Task 5) da lam.
+        await _biometricAuthService.RevokeAllForUserAsync(subject);
+
         return Ok(OperationResult.Ok("Da dang xuat khoi tat ca thiet bi."));
     }
 
@@ -483,7 +522,7 @@ public class AuthController : ControllerBase
         return Challenge(props, GoogleDefaults.AuthenticationScheme);
     }
 
-    /// <summary>Buoc cuoi cua luong Google: doc cookie tam, cap JWT, gui ve popup.</summary>
+    /// <summary>Buoc cuoi cua luong Google: doc cookie tam, cap access token, gui ve popup.</summary>
     [HttpGet("finalize/google")]
     [AllowAnonymous]
     public async Task<IActionResult> GoogleFinalize()
@@ -513,7 +552,7 @@ public class AuthController : ControllerBase
         return Challenge(props, FacebookDefaults.AuthenticationScheme);
     }
 
-    /// <summary>Buoc cuoi cua luong Facebook: doc cookie tam, cap JWT, gui ve popup.</summary>
+    /// <summary>Buoc cuoi cua luong Facebook: doc cookie tam, cap access token, gui ve popup.</summary>
     [HttpGet("finalize/facebook")]
     [AllowAnonymous]
     public async Task<IActionResult> FacebookFinalize()

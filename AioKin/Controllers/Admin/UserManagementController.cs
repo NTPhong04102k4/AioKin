@@ -2,6 +2,7 @@ using AioKin.Common;
 using AioKin.Models.InputModel.Auth.User;
 using AioKin.Models.Transfers.ProfileUser;
 using AioKin.Services.Auth.RefreshToken;
+using AioKin.Services.Auth.Token;
 using AioKin.Services.Auth.User;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -17,11 +18,16 @@ public class UserManagementController : ControllerBase
 {
     private readonly IUserService _userService;
     private readonly IRefreshTokenService _refreshTokenService;
+    private readonly IAccessTokenService _accessTokenService;
 
-    public UserManagementController(IUserService userService, IRefreshTokenService refreshTokenService)
+    public UserManagementController(
+        IUserService userService,
+        IRefreshTokenService refreshTokenService,
+        IAccessTokenService accessTokenService)
     {
         _userService = userService;
         _refreshTokenService = refreshTokenService;
+        _accessTokenService = accessTokenService;
     }
 
     /// <summary>Danh sach nguoi dung, co phan trang, tim kiem va loc theo khoang thoi gian.</summary>
@@ -95,6 +101,9 @@ public class UserManagementController : ControllerBase
     {
         var user = await _userService.GetByUuidAsync(userUuid);
         if (user is not null)
+        {
             await _refreshTokenService.RevokeAllAsync(user.UserCode);
+            await _accessTokenService.RevokeAllForSubjectAsync(user.UserCode);
+        }
     }
 }

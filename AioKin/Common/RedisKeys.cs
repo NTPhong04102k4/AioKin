@@ -8,14 +8,20 @@ public static class RedisKeys
 {
     // ─── Auth ─────────────────────────────────────────────────────────────────
 
-    /// <summary>Blacklist JWT theo JTI. TTL = thoi gian con lai cua access token.</summary>
-    public static string JwtBlacklist(string jti) => $"auth:blacklist:{jti}";
-
-    /// <summary>Refresh token → {userCode}|{role}.</summary>
-    public static string RefreshToken(string token) => $"auth:refresh:{token}";
+    /// <summary>Refresh token (sau khi bam sha256) → RefreshTokenPayload JSON.</summary>
+    public static string RefreshToken(string tokenHash) => $"auth:refresh:{tokenHash}";
 
     /// <summary>Tap hop refresh token cua mot user — dung de revoke tat ca.</summary>
     public static string UserRefreshTokens(string userCode) => $"auth:user_tokens:{userCode}";
+
+    /// <summary>Access token session (sau khi bam sha256) → AccessTokenSession JSON.</summary>
+    public static string AccessSession(string tokenHash) => $"auth:session:{tokenHash}";
+
+    /// <summary>Tap hop hash cua access token dang song cua mot subject — dung de revoke tat ca.</summary>
+    public static string UserAccessSessions(string subject) => $"auth:user_sessions:{subject}";
+
+    /// <summary>Challenge dang cho verify, dung 1 lan.</summary>
+    public static string BiometricChallenge(string challengeId) => $"auth:biometric_challenge:{challengeId}";
 
     // ─── OTP / TempPwd / Registration ────────────────────────────────────────
 
@@ -48,6 +54,9 @@ public static class RedisTtl
     public static readonly TimeSpan TempPassword = TimeSpan.FromMinutes(3);
     public static readonly TimeSpan Registration = TimeSpan.FromMinutes(15);
     public static readonly TimeSpan RefreshToken = TimeSpan.FromDays(7);
+
+    /// <summary>2 phut: du de nguoi dung xac thuc sinh trac, ngan de giam cua so tan cong.</summary>
+    public static readonly TimeSpan BiometricChallenge = TimeSpan.FromMinutes(2);
 
     /// <summary>
     /// Ngan co chu dich. Cache nay dung de tiet kiem mot lan JOIN, khong phai de giu lau —
