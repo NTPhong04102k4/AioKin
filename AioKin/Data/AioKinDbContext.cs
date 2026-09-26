@@ -3,6 +3,7 @@ using AioKin.Data.Entities.Family;
 using AioKin.Data.Entities.Security;
 using AioKin.Data.Entities.Sync;
 using AioKin.Data.Entities.Vault;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace AioKin.Data;
@@ -11,7 +12,7 @@ namespace AioKin.Data;
 /// DbContext cho phan Security (auth). Ten bang/cot theo snake_case — cau hinh
 /// <c>UseSnakeCaseNamingConvention()</c> trong Program.cs lo phan chuyen doi.
 /// </summary>
-public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbContext(options)
+public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbContext(options), IDataProtectionKeyContext
 {
     public DbSet<User> Users => Set<User>();
     public DbSet<Staff> Staffs => Set<Staff>();
@@ -23,6 +24,7 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
     public DbSet<FamilyMember> FamilyMembers => Set<FamilyMember>();
     public DbSet<FamilyInvite> FamilyInvites => Set<FamilyInvite>();
     public DbSet<DeviceCredential> DeviceCredentials => Set<DeviceCredential>();
+    public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
     public DbSet<Space> Spaces => Set<Space>();
     public DbSet<SpaceMember> SpaceMembers => Set<SpaceMember>();
     public DbSet<Category> Categories => Set<Category>();
@@ -34,6 +36,7 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
     public DbSet<SyncLogEntry> SyncLog => Set<SyncLogEntry>();
     public DbSet<SyncConflict> SyncConflicts => Set<SyncConflict>();
     public DbSet<BackupSnapshot> BackupSnapshots => Set<BackupSnapshot>();
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -95,6 +98,21 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
             entity.HasOne<AioKin.Data.Entities.Security.User>()
                 .WithMany()
                 .HasForeignKey(c => c.UserID)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DataProtectionKey>(entity =>
+        {
+            entity.ToTable("data_protection_keys", "security");
+        });
+
+        modelBuilder.Entity<DeviceToken>(entity =>
+        {
+            entity.HasIndex(t => t.Token).IsUnique();
+            entity.HasIndex(t => new { t.UserID, t.IsActive });
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(t => t.UserID)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

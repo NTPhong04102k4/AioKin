@@ -149,6 +149,22 @@ public class UserService : IUserService
         return user;
     }
 
+    public async Task<UserDb?> LinkSocialAsync(Guid userUuid, string socialId, string provider)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.UserUUID == userUuid);
+        if (user is null || !string.IsNullOrEmpty(user.IDSocial))
+            return null;
+
+        user.IDSocial = socialId;
+        user.SocialProvider = provider;
+        user.UpdatedDate = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation("Linked {Provider} social id to existing account userCode={UserCode}",
+            provider, user.UserCode);
+        return user;
+    }
+
     // ─── Quan tri nguoi dung ──────────────────────────────────────────────────
 
     public async Task<UserListResponse> GetUsersAsync(UserListQueryRequest request)

@@ -3,6 +3,7 @@ using System;
 using AioKin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace AioKin.Data.Migrations
 {
     [DbContext(typeof(AioKinDbContext))]
-    partial class AioKinDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260926210353_AddDataProtectionKeys")]
+    partial class AddDataProtectionKeys
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -389,59 +392,6 @@ namespace AioKin.Data.Migrations
                         .HasDatabaseName("ix_device_credentials_user_id_device_id");
 
                     b.ToTable("device_credentials", "security");
-                });
-
-            modelBuilder.Entity("AioKin.Data.Entities.Security.DeviceToken", b =>
-                {
-                    b.Property<Guid>("DeviceTokenID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("device_token_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("DeviceId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("device_id");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
-
-                    b.Property<DateTime?>("LastUsedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_used_at");
-
-                    b.Property<string>("Platform")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("platform");
-
-                    b.Property<string>("Token")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)")
-                        .HasColumnName("token");
-
-                    b.Property<Guid>("UserID")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("DeviceTokenID")
-                        .HasName("pk_device_tokens");
-
-                    b.HasIndex("Token")
-                        .IsUnique()
-                        .HasDatabaseName("ix_device_tokens_token");
-
-                    b.HasIndex("UserID", "IsActive")
-                        .HasDatabaseName("ix_device_tokens_user_id_is_active");
-
-                    b.ToTable("device_tokens", "security");
                 });
 
             modelBuilder.Entity("AioKin.Data.Entities.Security.Role", b =>
@@ -1424,16 +1374,6 @@ namespace AioKin.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_device_credentials_users_user_id");
-                });
-
-            modelBuilder.Entity("AioKin.Data.Entities.Security.DeviceToken", b =>
-                {
-                    b.HasOne("AioKin.Data.Entities.Security.User", null)
-                        .WithMany()
-                        .HasForeignKey("UserID")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_device_tokens_users_user_id");
                 });
 
             modelBuilder.Entity("AioKin.Data.Entities.Security.Staff", b =>
