@@ -20,7 +20,7 @@ namespace AioKin.Data.Migrations
 
             migrationBuilder.AddColumn<Guid>(
                 name: "updated_by_user_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "prompts",
                 type: "uuid",
                 nullable: true);
@@ -28,7 +28,7 @@ namespace AioKin.Data.Migrations
             // Carry-forward Task 3 (progress.md): echo suppression keyed tren origin_device_id
             // MOT MINH la spoofable — 2 thanh vien KHAC NHAU trong cung mot space chia se co
             // the tu chon trung DeviceInfo.DeviceId (chuoi client tu dat luc dang nhap). Trigger
-            // gio ghi kem origin_user_id (tu vault.prompts.updated_by_user_id, duoc SyncService
+            // gio ghi kem origin_user_id (tu promptvault.prompts.updated_by_user_id, duoc SyncService
             // gan cung luc voi updated_device_id) de pull suppress dung tren CAP (user, device).
             migrationBuilder.Sql("""
                 CREATE OR REPLACE FUNCTION sync.fn_prompts_write_log()
@@ -82,7 +82,7 @@ namespace AioKin.Data.Migrations
 
             migrationBuilder.DropColumn(
                 name: "updated_by_user_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "prompts");
         }
     }

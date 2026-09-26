@@ -8,7 +8,7 @@ namespace AioKin.Data.Entities.Vault;
 /// Pham vi chia se cho Prompt/Category/Tag. KHONG phai nguon su that ve thanh vien cho
 /// SpaceType.Family — nguon that van la family.family_members, xem SpaceContext.
 /// </summary>
-[Table("spaces", Schema = "vault")]
+[Table("spaces", Schema = "promptvault")]
 public class Space
 {
     public const string SubjectType = "Space";

@@ -7,7 +7,7 @@ namespace AioKin.Data.Entities.Vault;
 /// Id client tu sinh (khong phai server) — xem Global Constraints cua plan nay: 4 entity
 /// nay la nhom duy nhat can id on dinh truoc khi cham server, phuc vu offline sync.
 /// </summary>
-[Table("categories", Schema = "vault")]
+[Table("categories", Schema = "promptvault")]
 public class Category
 {
     public const string SubjectType = "Category";

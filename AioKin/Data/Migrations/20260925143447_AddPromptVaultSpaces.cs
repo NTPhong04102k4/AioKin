@@ -12,11 +12,11 @@ namespace AioKin.Data.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.EnsureSchema(
-                name: "vault");
+                name: "promptvault");
 
             migrationBuilder.CreateTable(
                 name: "spaces",
-                schema: "vault",
+                schema: "promptvault",
                 columns: table => new
                 {
                     space_id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -49,7 +49,7 @@ namespace AioKin.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "space_members",
-                schema: "vault",
+                schema: "promptvault",
                 columns: table => new
                 {
                     space_member_id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -64,7 +64,7 @@ namespace AioKin.Data.Migrations
                     table.ForeignKey(
                         name: "fk_space_members_spaces_space_id",
                         column: x => x.space_id,
-                        principalSchema: "vault",
+                        principalSchema: "promptvault",
                         principalTable: "spaces",
                         principalColumn: "space_id",
                         onDelete: ReferentialAction.Cascade);
@@ -79,20 +79,20 @@ namespace AioKin.Data.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "ix_space_members_space_id_user_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "space_members",
                 columns: new[] { "space_id", "user_id" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_space_members_user_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "space_members",
                 column: "user_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_spaces_family_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "spaces",
                 column: "family_id",
                 unique: true,
@@ -100,13 +100,13 @@ namespace AioKin.Data.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "ix_spaces_owner_user_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "spaces",
                 column: "owner_user_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_spaces_space_uuid",
-                schema: "vault",
+                schema: "promptvault",
                 table: "spaces",
                 column: "space_uuid",
                 unique: true);
@@ -117,11 +117,11 @@ namespace AioKin.Data.Migrations
         {
             migrationBuilder.DropTable(
                 name: "space_members",
-                schema: "vault");
+                schema: "promptvault");
 
             migrationBuilder.DropTable(
                 name: "spaces",
-                schema: "vault");
+                schema: "promptvault");
         }
     }
 }

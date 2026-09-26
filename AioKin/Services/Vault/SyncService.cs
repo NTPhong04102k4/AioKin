@@ -350,7 +350,7 @@ public class SyncService : ISyncService
     }
 
     /// <summary>
-    /// Carry-forward Task 2: trigger tren vault.prompts khong biet gi ve prompt_tags/
+    /// Carry-forward Task 2: trigger tren promptvault.prompts khong biet gi ve prompt_tags/
     /// prompt_variables (bang join rieng), nen payload no ghi vao sync_log KHONG BAO GIO co
     /// tags/variables — pull phai tu hydrate lai tu bang song. Ap dung cho CA dong
     /// tags_variables-only (P12, do SyncService tu ghi) LAN dong noi dung binh thuong (do
@@ -983,7 +983,7 @@ public class SyncService : ISyncService
     /// Fix round 1 (Task 4 review): P12 ap dung o day GIONG HET ApplyUpdateOrConflictAsync cua
     /// push -- mot resolve (vd "merged" giu nguyen title/content/description/category cua remote
     /// nhung doi tag) co the khong thay doi cot nao cua BANG prompts ca, nen trigger
-    /// vault.fn_prompts_before_update se KHONG bump version va sync.fn_prompts_write_log (UPDATE
+    /// promptvault.fn_prompts_before_update se KHONG bump version va sync.fn_prompts_write_log (UPDATE
     /// trigger, dieu kien "version co doi") se KHONG ghi sync_log -- neu khong tu ghi thu cong o
     /// day, thay doi tag/variable do se vinh vien vo hinh voi moi thiet bi KHAC (khong bao gio
     /// xuat hien trong bat ky lan pull nao). Chup truoc/sau (bao gom ca IsDeleted, vi ham nay LUON
@@ -1235,7 +1235,7 @@ public class SyncService : ISyncService
     /// khong phat minh tieu chi rieng. Duoc goi lai (va gan vao Prompt.MetaSig) o MOI diem co the
     /// lam tag/variable doi (PushInsertAsync luc tao, ApplyUpdateOrConflictAsync/
     /// ApplyResolvedPayloadAsync moi khi tagsProvided/variablesProvided) de cot nay LUON phan anh
-    /// dung trang thai hien tai — trigger DB (vault.fn_prompts_before_update, WHEN OLD.meta_sig
+    /// dung trang thai hien tai — trigger DB (promptvault.fn_prompts_before_update, WHEN OLD.meta_sig
     /// IS DISTINCT FROM NEW.meta_sig) dua vao do de tu bump Version + ghi sync_log ngay ca khi
     /// CHI tag/variable doi, khong con can workaround AddTagVariableSyncLogEntry ghi thu cong nua
     /// (da bo — xem quyet dinh trong followup-tag-variable-versioning-report.md: giu lai se ghi

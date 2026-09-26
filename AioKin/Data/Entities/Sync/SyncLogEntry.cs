@@ -36,7 +36,7 @@ public class SyncLogEntry
     /// <summary>
     /// Carry-forward Task 3: nguoi THAT SU tao ra dong nay — ghi kem OriginDeviceId de pull
     /// suppress echo dung tren CAP (user, device), khong chi device (xem Prompt.UpdatedByUserId).
-    /// Trigger sync.fn_prompts_write_log gan gia tri nay tu vault.prompts.updated_by_user_id;
+    /// Trigger sync.fn_prompts_write_log gan gia tri nay tu promptvault.prompts.updated_by_user_id;
     /// AddTagVariableSyncLogEntry (SyncService) gan truc tiep tu membership.UserID.
     /// </summary>
     public Guid? OriginUserId { get; set; }

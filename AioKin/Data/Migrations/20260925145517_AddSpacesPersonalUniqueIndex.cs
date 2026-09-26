@@ -12,12 +12,12 @@ namespace AioKin.Data.Migrations
         {
             migrationBuilder.DropIndex(
                 name: "ix_spaces_owner_user_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "spaces");
 
             migrationBuilder.CreateIndex(
                 name: "ix_spaces_owner_personal_unique",
-                schema: "vault",
+                schema: "promptvault",
                 table: "spaces",
                 column: "owner_user_id",
                 unique: true,
@@ -29,12 +29,12 @@ namespace AioKin.Data.Migrations
         {
             migrationBuilder.DropIndex(
                 name: "ix_spaces_owner_personal_unique",
-                schema: "vault",
+                schema: "promptvault",
                 table: "spaces");
 
             migrationBuilder.CreateIndex(
                 name: "ix_spaces_owner_user_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "spaces",
                 column: "owner_user_id");
         }

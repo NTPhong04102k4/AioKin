@@ -13,7 +13,7 @@ namespace AioKin.Data.Migrations
         {
             migrationBuilder.CreateTable(
                 name: "categories",
-                schema: "vault",
+                schema: "promptvault",
                 columns: table => new
                 {
                     category_id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -30,7 +30,7 @@ namespace AioKin.Data.Migrations
                     table.ForeignKey(
                         name: "fk_categories_spaces_space_id",
                         column: x => x.space_id,
-                        principalSchema: "vault",
+                        principalSchema: "promptvault",
                         principalTable: "spaces",
                         principalColumn: "space_id",
                         onDelete: ReferentialAction.Cascade);
@@ -38,7 +38,7 @@ namespace AioKin.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "tags",
-                schema: "vault",
+                schema: "promptvault",
                 columns: table => new
                 {
                     tag_id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -52,7 +52,7 @@ namespace AioKin.Data.Migrations
                     table.ForeignKey(
                         name: "fk_tags_spaces_space_id",
                         column: x => x.space_id,
-                        principalSchema: "vault",
+                        principalSchema: "promptvault",
                         principalTable: "spaces",
                         principalColumn: "space_id",
                         onDelete: ReferentialAction.Cascade);
@@ -60,7 +60,7 @@ namespace AioKin.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "prompts",
-                schema: "vault",
+                schema: "promptvault",
                 columns: table => new
                 {
                     prompt_id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -89,14 +89,14 @@ namespace AioKin.Data.Migrations
                     table.ForeignKey(
                         name: "fk_prompts_categories_category_id",
                         column: x => x.category_id,
-                        principalSchema: "vault",
+                        principalSchema: "promptvault",
                         principalTable: "categories",
                         principalColumn: "category_id",
                         onDelete: ReferentialAction.SetNull);
                     table.ForeignKey(
                         name: "fk_prompts_spaces_space_id",
                         column: x => x.space_id,
-                        principalSchema: "vault",
+                        principalSchema: "promptvault",
                         principalTable: "spaces",
                         principalColumn: "space_id",
                         onDelete: ReferentialAction.Cascade);
@@ -111,7 +111,7 @@ namespace AioKin.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "prompt_tags",
-                schema: "vault",
+                schema: "promptvault",
                 columns: table => new
                 {
                     prompt_id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -123,14 +123,14 @@ namespace AioKin.Data.Migrations
                     table.ForeignKey(
                         name: "fk_prompt_tags_prompts_prompt_id",
                         column: x => x.prompt_id,
-                        principalSchema: "vault",
+                        principalSchema: "promptvault",
                         principalTable: "prompts",
                         principalColumn: "prompt_id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "fk_prompt_tags_tags_tag_id",
                         column: x => x.tag_id,
-                        principalSchema: "vault",
+                        principalSchema: "promptvault",
                         principalTable: "tags",
                         principalColumn: "tag_id",
                         onDelete: ReferentialAction.Cascade);
@@ -138,7 +138,7 @@ namespace AioKin.Data.Migrations
 
             migrationBuilder.CreateTable(
                 name: "prompt_variables",
-                schema: "vault",
+                schema: "promptvault",
                 columns: table => new
                 {
                     variable_id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -156,7 +156,7 @@ namespace AioKin.Data.Migrations
                     table.ForeignKey(
                         name: "fk_prompt_variables_prompts_prompt_id",
                         column: x => x.prompt_id,
-                        principalSchema: "vault",
+                        principalSchema: "promptvault",
                         principalTable: "prompts",
                         principalColumn: "prompt_id",
                         onDelete: ReferentialAction.Cascade);
@@ -164,77 +164,77 @@ namespace AioKin.Data.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "ix_categories_space_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "categories",
                 column: "space_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_categories_space_id_name",
-                schema: "vault",
+                schema: "promptvault",
                 table: "categories",
                 columns: new[] { "space_id", "name" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_prompt_tags_tag_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "prompt_tags",
                 column: "tag_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_prompt_variables_prompt_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "prompt_variables",
                 column: "prompt_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_prompt_variables_prompt_id_var_key",
-                schema: "vault",
+                schema: "promptvault",
                 table: "prompt_variables",
                 columns: new[] { "prompt_id", "var_key" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_prompts_author_user_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "prompts",
                 column: "author_user_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_prompts_category_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "prompts",
                 column: "category_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_prompts_space_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "prompts",
                 column: "space_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_prompts_space_id_is_favorite",
-                schema: "vault",
+                schema: "promptvault",
                 table: "prompts",
                 columns: new[] { "space_id", "is_favorite" },
                 filter: "is_deleted = false");
 
             migrationBuilder.CreateIndex(
                 name: "ix_prompts_space_id_updated_date",
-                schema: "vault",
+                schema: "promptvault",
                 table: "prompts",
                 columns: new[] { "space_id", "updated_date" },
                 filter: "is_deleted = false");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tags_space_id",
-                schema: "vault",
+                schema: "promptvault",
                 table: "tags",
                 column: "space_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tags_space_id_name",
-                schema: "vault",
+                schema: "promptvault",
                 table: "tags",
                 columns: new[] { "space_id", "name" },
                 unique: true);
@@ -243,33 +243,33 @@ namespace AioKin.Data.Migrations
             // tren 2 cot (title || ' ' || content) ma khong luu them cot moi, nen sinh
             // bang raw SQL o day (Step 6 cua Task 5).
             migrationBuilder.Sql(
-                "CREATE INDEX ix_prompts_fts ON vault.prompts USING GIN (to_tsvector('simple', title || ' ' || content));");
+                "CREATE INDEX ix_prompts_fts ON promptvault.prompts USING GIN (to_tsvector('simple', title || ' ' || content));");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.Sql("DROP INDEX IF EXISTS vault.ix_prompts_fts;");
+            migrationBuilder.Sql("DROP INDEX IF EXISTS promptvault.ix_prompts_fts;");
 
             migrationBuilder.DropTable(
                 name: "prompt_tags",
-                schema: "vault");
+                schema: "promptvault");
 
             migrationBuilder.DropTable(
                 name: "prompt_variables",
-                schema: "vault");
+                schema: "promptvault");
 
             migrationBuilder.DropTable(
                 name: "tags",
-                schema: "vault");
+                schema: "promptvault");
 
             migrationBuilder.DropTable(
                 name: "prompts",
-                schema: "vault");
+                schema: "promptvault");
 
             migrationBuilder.DropTable(
                 name: "categories",
-                schema: "vault");
+                schema: "promptvault");
         }
     }
 }

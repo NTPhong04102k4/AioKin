@@ -6,10 +6,10 @@ namespace AioKin.Data.Entities.Vault;
 /// Nhieu-nhieu Prompt-Tag. KHONG phai mot entity_type rieng trong sync_log — dong bo nhu
 /// mot phan cua payload Prompt (spec muc 6, sync_log.entity_type khong co 'prompt_tag').
 ///
-/// Ruling (Med, progress.md): can [Table(..., Schema="vault")] rieng cho bang join nay —
+/// Ruling (Med, progress.md): can [Table(..., Schema="promptvault")] rieng cho bang join nay —
 /// brief goc thieu attribute nay, chi dua vao cau hinh HasKey trong DbContext.
 /// </summary>
-[Table("prompt_tags", Schema = "vault")]
+[Table("prompt_tags", Schema = "promptvault")]
 public class PromptTag
 {
     public Guid PromptID { get; set; }

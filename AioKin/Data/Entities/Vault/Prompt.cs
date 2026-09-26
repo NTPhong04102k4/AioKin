@@ -9,7 +9,7 @@ namespace AioKin.Data.Entities.Vault;
 /// la conflict, khong tu Last-Write-Wins (xem spec muc 6.2). HasConflict la co dua vao
 /// sync.sync_conflicts, khong tu suy ra o day.
 /// </summary>
-[Table("prompts", Schema = "vault")]
+[Table("prompts", Schema = "promptvault")]
 public class Prompt
 {
     public const string SubjectType = "Prompt";
@@ -79,7 +79,7 @@ public class Prompt
     /// P12 (tag/variable-only), khong phat minh tieu chi rieng. SyncService (PushInsertAsync/
     /// ApplyUpdateOrConflictAsync/ApplyResolvedPayloadAsync) PHAI gan lai cot nay MOI LAN tag/
     /// variable co the da doi, de no LUON phan anh dung trang thai hien tai. Trigger DB
-    /// vault.fn_prompts_before_update so sanh OLD.meta_sig IS DISTINCT FROM NEW.meta_sig trong
+    /// promptvault.fn_prompts_before_update so sanh OLD.meta_sig IS DISTINCT FROM NEW.meta_sig trong
     /// WHEN clause — nho vay mot thay doi CHI o tag/variable (truoc day trigger bo qua hoan
     /// toan, khong bump Version, khong ghi sync_log) gio bump Version + ghi sync_log giong het
     /// mot thay doi noi dung that su, dong nghia voi P22 (kiem tra version luc resolve) va
