@@ -23,6 +23,7 @@ using AioKin.Services.Family;
 using AioKin.Services.Vault;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -258,6 +259,12 @@ if (!string.IsNullOrWhiteSpace(storageBaseUrl))
 }
 
 // ─── Xac thuc ─────────────────────────────────────────────────────────────────
+
+// Luu khoa DataProtection vao Postgres de bao toan phien dang nhap (cookie tam SSO,
+// OAuth state, anti-forgery) khi container restart hoac scale out nhieu replica.
+builder.Services.AddDataProtection()
+    .PersistKeysToDbContext<AioKinDbContext>()
+    .SetApplicationName("AioKin");
 
 var authentication = builder.Services.AddAuthentication(options =>
 {
