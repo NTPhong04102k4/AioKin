@@ -1,11 +1,14 @@
--- File nay AUTO-GENERATED, KHONG sua tay. Sinh lai bang:
+﻿-- File nay AUTO-GENERATED, KHONG sua tay. Sinh lai bang:
 --   cd AioKin && dotnet ef migrations script -o ../db/init-postgres.sql
 -- (khong dung --idempotent — day la script khoi tao 1 lan cho DB Supabase trong,
 -- xem docs/database.md muc 2.1). Nguon su that la AioKin/Data/Migrations/, khong
--- phai file nay. Sinh lai lan nay: cloud (Supabase) da bi xoa sach schema/bang,
--- file cu chi phu 11/13 migration (thieu AddDataProtectionKeys, AddDeviceTokens) —
--- ban nay phu du ca 13 migration, gom 5 schema (core, security, family, vault,
--- sync) va 24 bang.
+-- phai file nay. Sinh lai lan nay: schema "vault" bi doi ten thanh "promptvault" —
+-- Supabase da co san mot schema noi bo ten "vault" (Supabase Vault, thuoc
+-- supabase_admin), nen CREATE TABLE vault.spaces bi tu choi voi loi "permission
+-- denied for schema vault". Doi schema (7 entity + 13 migration + trigger SQL
+-- tho trong AddPromptVaultDomain/AddSyncEngine/AddSyncLogOriginUser/
+-- AddPromptMetaSig) sang "promptvault" de tranh trung ten voi schema he thong
+-- cua Supabase.
 CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
     migration_id character varying(150) NOT NULL,
     product_version character varying(32) NOT NULL,
@@ -243,12 +246,12 @@ VALUES ('20260925092551_AddDeviceCredentials', '9.0.9');
 
 DO $EF$
 BEGIN
-    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'vault') THEN
-        CREATE SCHEMA vault;
+    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'promptvault') THEN
+        CREATE SCHEMA promptvault;
     END IF;
 END $EF$;
 
-CREATE TABLE vault.spaces (
+CREATE TABLE promptvault.spaces (
     space_id uuid NOT NULL,
     space_uuid uuid NOT NULL,
     space_type integer NOT NULL,
@@ -262,38 +265,38 @@ CREATE TABLE vault.spaces (
     CONSTRAINT fk_spaces_users_owner_user_id FOREIGN KEY (owner_user_id) REFERENCES security.users (user_id) ON DELETE RESTRICT
 );
 
-CREATE TABLE vault.space_members (
+CREATE TABLE promptvault.space_members (
     space_member_id uuid NOT NULL,
     space_id uuid NOT NULL,
     user_id uuid NOT NULL,
     member_role integer NOT NULL,
     joined_date timestamp with time zone NOT NULL,
     CONSTRAINT pk_space_members PRIMARY KEY (space_member_id),
-    CONSTRAINT fk_space_members_spaces_space_id FOREIGN KEY (space_id) REFERENCES vault.spaces (space_id) ON DELETE CASCADE,
+    CONSTRAINT fk_space_members_spaces_space_id FOREIGN KEY (space_id) REFERENCES promptvault.spaces (space_id) ON DELETE CASCADE,
     CONSTRAINT fk_space_members_users_user_id FOREIGN KEY (user_id) REFERENCES security.users (user_id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX ix_space_members_space_id_user_id ON vault.space_members (space_id, user_id);
+CREATE UNIQUE INDEX ix_space_members_space_id_user_id ON promptvault.space_members (space_id, user_id);
 
-CREATE INDEX ix_space_members_user_id ON vault.space_members (user_id);
+CREATE INDEX ix_space_members_user_id ON promptvault.space_members (user_id);
 
-CREATE UNIQUE INDEX ix_spaces_family_id ON vault.spaces (family_id) WHERE family_id IS NOT NULL;
+CREATE UNIQUE INDEX ix_spaces_family_id ON promptvault.spaces (family_id) WHERE family_id IS NOT NULL;
 
-CREATE INDEX ix_spaces_owner_user_id ON vault.spaces (owner_user_id);
+CREATE INDEX ix_spaces_owner_user_id ON promptvault.spaces (owner_user_id);
 
-CREATE UNIQUE INDEX ix_spaces_space_uuid ON vault.spaces (space_uuid);
+CREATE UNIQUE INDEX ix_spaces_space_uuid ON promptvault.spaces (space_uuid);
 
 INSERT INTO "__EFMigrationsHistory" (migration_id, product_version)
 VALUES ('20260925143447_AddPromptVaultSpaces', '9.0.9');
 
-DROP INDEX vault.ix_spaces_owner_user_id;
+DROP INDEX promptvault.ix_spaces_owner_user_id;
 
-CREATE UNIQUE INDEX ix_spaces_owner_personal_unique ON vault.spaces (owner_user_id) WHERE space_type = 0;
+CREATE UNIQUE INDEX ix_spaces_owner_personal_unique ON promptvault.spaces (owner_user_id) WHERE space_type = 0;
 
 INSERT INTO "__EFMigrationsHistory" (migration_id, product_version)
 VALUES ('20260925145517_AddSpacesPersonalUniqueIndex', '9.0.9');
 
-CREATE TABLE vault.categories (
+CREATE TABLE promptvault.categories (
     category_id uuid NOT NULL,
     space_id uuid NOT NULL,
     name character varying(80) NOT NULL,
@@ -302,19 +305,19 @@ CREATE TABLE vault.categories (
     sort_order integer NOT NULL,
     created_date timestamp with time zone NOT NULL,
     CONSTRAINT pk_categories PRIMARY KEY (category_id),
-    CONSTRAINT fk_categories_spaces_space_id FOREIGN KEY (space_id) REFERENCES vault.spaces (space_id) ON DELETE CASCADE
+    CONSTRAINT fk_categories_spaces_space_id FOREIGN KEY (space_id) REFERENCES promptvault.spaces (space_id) ON DELETE CASCADE
 );
 
-CREATE TABLE vault.tags (
+CREATE TABLE promptvault.tags (
     tag_id uuid NOT NULL,
     space_id uuid NOT NULL,
     name character varying(50) NOT NULL,
     created_date timestamp with time zone NOT NULL,
     CONSTRAINT pk_tags PRIMARY KEY (tag_id),
-    CONSTRAINT fk_tags_spaces_space_id FOREIGN KEY (space_id) REFERENCES vault.spaces (space_id) ON DELETE CASCADE
+    CONSTRAINT fk_tags_spaces_space_id FOREIGN KEY (space_id) REFERENCES promptvault.spaces (space_id) ON DELETE CASCADE
 );
 
-CREATE TABLE vault.prompts (
+CREATE TABLE promptvault.prompts (
     prompt_id uuid NOT NULL,
     space_id uuid NOT NULL,
     category_id uuid,
@@ -335,20 +338,20 @@ CREATE TABLE vault.prompts (
     updated_date timestamp with time zone NOT NULL,
     updated_device_id character varying(100),
     CONSTRAINT pk_prompts PRIMARY KEY (prompt_id),
-    CONSTRAINT fk_prompts_categories_category_id FOREIGN KEY (category_id) REFERENCES vault.categories (category_id) ON DELETE SET NULL,
-    CONSTRAINT fk_prompts_spaces_space_id FOREIGN KEY (space_id) REFERENCES vault.spaces (space_id) ON DELETE CASCADE,
+    CONSTRAINT fk_prompts_categories_category_id FOREIGN KEY (category_id) REFERENCES promptvault.categories (category_id) ON DELETE SET NULL,
+    CONSTRAINT fk_prompts_spaces_space_id FOREIGN KEY (space_id) REFERENCES promptvault.spaces (space_id) ON DELETE CASCADE,
     CONSTRAINT fk_prompts_users_author_user_id FOREIGN KEY (author_user_id) REFERENCES security.users (user_id) ON DELETE RESTRICT
 );
 
-CREATE TABLE vault.prompt_tags (
+CREATE TABLE promptvault.prompt_tags (
     prompt_id uuid NOT NULL,
     tag_id uuid NOT NULL,
     CONSTRAINT pk_prompt_tags PRIMARY KEY (prompt_id, tag_id),
-    CONSTRAINT fk_prompt_tags_prompts_prompt_id FOREIGN KEY (prompt_id) REFERENCES vault.prompts (prompt_id) ON DELETE CASCADE,
-    CONSTRAINT fk_prompt_tags_tags_tag_id FOREIGN KEY (tag_id) REFERENCES vault.tags (tag_id) ON DELETE CASCADE
+    CONSTRAINT fk_prompt_tags_prompts_prompt_id FOREIGN KEY (prompt_id) REFERENCES promptvault.prompts (prompt_id) ON DELETE CASCADE,
+    CONSTRAINT fk_prompt_tags_tags_tag_id FOREIGN KEY (tag_id) REFERENCES promptvault.tags (tag_id) ON DELETE CASCADE
 );
 
-CREATE TABLE vault.prompt_variables (
+CREATE TABLE promptvault.prompt_variables (
     variable_id uuid NOT NULL,
     prompt_id uuid NOT NULL,
     var_key character varying(50) NOT NULL,
@@ -358,34 +361,34 @@ CREATE TABLE vault.prompt_variables (
     options text,
     sort_order integer NOT NULL,
     CONSTRAINT pk_prompt_variables PRIMARY KEY (variable_id),
-    CONSTRAINT fk_prompt_variables_prompts_prompt_id FOREIGN KEY (prompt_id) REFERENCES vault.prompts (prompt_id) ON DELETE CASCADE
+    CONSTRAINT fk_prompt_variables_prompts_prompt_id FOREIGN KEY (prompt_id) REFERENCES promptvault.prompts (prompt_id) ON DELETE CASCADE
 );
 
-CREATE INDEX ix_categories_space_id ON vault.categories (space_id);
+CREATE INDEX ix_categories_space_id ON promptvault.categories (space_id);
 
-CREATE UNIQUE INDEX ix_categories_space_id_name ON vault.categories (space_id, name);
+CREATE UNIQUE INDEX ix_categories_space_id_name ON promptvault.categories (space_id, name);
 
-CREATE INDEX ix_prompt_tags_tag_id ON vault.prompt_tags (tag_id);
+CREATE INDEX ix_prompt_tags_tag_id ON promptvault.prompt_tags (tag_id);
 
-CREATE INDEX ix_prompt_variables_prompt_id ON vault.prompt_variables (prompt_id);
+CREATE INDEX ix_prompt_variables_prompt_id ON promptvault.prompt_variables (prompt_id);
 
-CREATE UNIQUE INDEX ix_prompt_variables_prompt_id_var_key ON vault.prompt_variables (prompt_id, var_key);
+CREATE UNIQUE INDEX ix_prompt_variables_prompt_id_var_key ON promptvault.prompt_variables (prompt_id, var_key);
 
-CREATE INDEX ix_prompts_author_user_id ON vault.prompts (author_user_id);
+CREATE INDEX ix_prompts_author_user_id ON promptvault.prompts (author_user_id);
 
-CREATE INDEX ix_prompts_category_id ON vault.prompts (category_id);
+CREATE INDEX ix_prompts_category_id ON promptvault.prompts (category_id);
 
-CREATE INDEX ix_prompts_space_id ON vault.prompts (space_id);
+CREATE INDEX ix_prompts_space_id ON promptvault.prompts (space_id);
 
-CREATE INDEX ix_prompts_space_id_is_favorite ON vault.prompts (space_id, is_favorite) WHERE is_deleted = false;
+CREATE INDEX ix_prompts_space_id_is_favorite ON promptvault.prompts (space_id, is_favorite) WHERE is_deleted = false;
 
-CREATE INDEX ix_prompts_space_id_updated_date ON vault.prompts (space_id, updated_date) WHERE is_deleted = false;
+CREATE INDEX ix_prompts_space_id_updated_date ON promptvault.prompts (space_id, updated_date) WHERE is_deleted = false;
 
-CREATE INDEX ix_tags_space_id ON vault.tags (space_id);
+CREATE INDEX ix_tags_space_id ON promptvault.tags (space_id);
 
-CREATE UNIQUE INDEX ix_tags_space_id_name ON vault.tags (space_id, name);
+CREATE UNIQUE INDEX ix_tags_space_id_name ON promptvault.tags (space_id, name);
 
-CREATE INDEX ix_prompts_fts ON vault.prompts USING GIN (to_tsvector('simple', title || ' ' || content));
+CREATE INDEX ix_prompts_fts ON promptvault.prompts USING GIN (to_tsvector('simple', title || ' ' || content));
 
 INSERT INTO "__EFMigrationsHistory" (migration_id, product_version)
 VALUES ('20260925185031_AddPromptVaultDomain', '9.0.9');
@@ -459,7 +462,7 @@ CREATE INDEX ix_sync_log_entity_type_entity_id ON sync.sync_log (entity_type, en
 
 CREATE INDEX ix_sync_log_space_id_created_at ON sync.sync_log (space_id, created_at);
 
-CREATE OR REPLACE FUNCTION vault.fn_prompts_before_update()
+CREATE OR REPLACE FUNCTION promptvault.fn_prompts_before_update()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.version := OLD.version + 1;
@@ -469,7 +472,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_prompts_before_update
-    BEFORE UPDATE ON vault.prompts
+    BEFORE UPDATE ON promptvault.prompts
     FOR EACH ROW
     WHEN (
         OLD.title IS DISTINCT FROM NEW.title OR
@@ -478,7 +481,7 @@ CREATE TRIGGER trg_prompts_before_update
         OLD.category_id IS DISTINCT FROM NEW.category_id OR
         OLD.is_deleted IS DISTINCT FROM NEW.is_deleted
     )
-    EXECUTE FUNCTION vault.fn_prompts_before_update();
+    EXECUTE FUNCTION promptvault.fn_prompts_before_update();
 
 CREATE OR REPLACE FUNCTION sync.fn_prompts_write_log()
 RETURNS TRIGGER AS $$
@@ -510,18 +513,18 @@ $$ LANGUAGE plpgsql;
 --     nen mot write CHI bat has_conflict/is_favorite (khong lam version nhich
 --     len) se khong con tao them dong sync_log gia.
 CREATE TRIGGER trg_prompts_write_sync_log_ins
-    AFTER INSERT ON vault.prompts
+    AFTER INSERT ON promptvault.prompts
     FOR EACH ROW
     EXECUTE FUNCTION sync.fn_prompts_write_log();
 
 CREATE TRIGGER trg_prompts_write_sync_log_upd
-    AFTER UPDATE ON vault.prompts
+    AFTER UPDATE ON promptvault.prompts
     FOR EACH ROW
     WHEN (OLD.version IS DISTINCT FROM NEW.version)
     EXECUTE FUNCTION sync.fn_prompts_write_log();
 
 CREATE TRIGGER trg_prompts_write_sync_log_del
-    AFTER DELETE ON vault.prompts
+    AFTER DELETE ON promptvault.prompts
     FOR EACH ROW
     EXECUTE FUNCTION sync.fn_prompts_write_log();
 
@@ -530,7 +533,7 @@ VALUES ('20260925194111_AddSyncEngine', '9.0.9');
 
 ALTER TABLE sync.sync_log ADD origin_user_id uuid;
 
-ALTER TABLE vault.prompts ADD updated_by_user_id uuid;
+ALTER TABLE promptvault.prompts ADD updated_by_user_id uuid;
 
 CREATE OR REPLACE FUNCTION sync.fn_prompts_write_log()
 RETURNS TRIGGER AS $$
@@ -562,11 +565,11 @@ ALTER TABLE sync.sync_conflicts ADD space_id uuid NOT NULL DEFAULT '00000000-000
 INSERT INTO "__EFMigrationsHistory" (migration_id, product_version)
 VALUES ('20260926003505_AddSyncConflictOperationMetadata', '9.0.9');
 
-ALTER TABLE vault.prompts ADD meta_sig character varying(64);
+ALTER TABLE promptvault.prompts ADD meta_sig character varying(64);
 
-DROP TRIGGER IF EXISTS trg_prompts_before_update ON vault.prompts;
+DROP TRIGGER IF EXISTS trg_prompts_before_update ON promptvault.prompts;
 
-CREATE OR REPLACE FUNCTION vault.fn_prompts_before_update()
+CREATE OR REPLACE FUNCTION promptvault.fn_prompts_before_update()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.version := OLD.version + 1;
@@ -576,7 +579,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_prompts_before_update
-    BEFORE UPDATE ON vault.prompts
+    BEFORE UPDATE ON promptvault.prompts
     FOR EACH ROW
     WHEN (
         OLD.title IS DISTINCT FROM NEW.title OR
@@ -586,7 +589,7 @@ CREATE TRIGGER trg_prompts_before_update
         OLD.is_deleted IS DISTINCT FROM NEW.is_deleted OR
         OLD.meta_sig IS DISTINCT FROM NEW.meta_sig
     )
-    EXECUTE FUNCTION vault.fn_prompts_before_update();
+    EXECUTE FUNCTION promptvault.fn_prompts_before_update();
 
 INSERT INTO "__EFMigrationsHistory" (migration_id, product_version)
 VALUES ('20260926063044_AddPromptMetaSig', '9.0.9');
