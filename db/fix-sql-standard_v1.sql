@@ -1,4 +1,17 @@
 -- =========================================================================
+-- CANH BAO (final fix wave, finding 4, cap nhat sau task 2-4 cua sync engine):
+-- file nay la TAI LIEU THAM CHIEU tu luc THIET KE, hien da LECH khoi schema
+-- that su tren DB (10 migration EF, xem AioKin/Data/Migrations/) o it nhat 3
+-- cho: (1) trg_prompts_before_update ben duoi THIEU dieu kien is_deleted trong
+-- WHEN — schema that co them dieu kien nay (P11, soft-delete phai bump version);
+-- (2) sync.sync_conflicts ben duoi THIEU cac cot space_id/local_operation/
+-- remote_is_deleted da them boi migration AddSyncConflictOperationMetadata;
+-- (3) sync.devices ben duoi dung khoa chinh device_id-ONLY, schema that dung
+-- khoa kep (user_id, device_id) (P16). KHONG chay file nay len DB — dung
+-- db/init-postgres.sql (auto-generated tu migration that) hoac
+-- AioKin/Data/Migrations/ lam nguon su that. Xem
+-- .superpowers/sdd/2026-09-25-promptvault-sync-engine/final-findings.md muc 4.
+-- =========================================================================
 -- PROMPTVAULT MERGE — SCHEMA CHUAN (v1), DA SUA THEO SPEC
 -- Xem: docs/superpowers/specs/2026-09-25-promptvault-merge-design.md
 --      docs/superpowers/plans/2026-09-25-promptvault-space-and-prompt-domain.md
