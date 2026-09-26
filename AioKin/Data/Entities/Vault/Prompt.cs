@@ -72,6 +72,24 @@ public class Prompt
     /// </summary>
     public Guid? UpdatedByUserId { get; set; }
 
+    /// <summary>
+    /// Follow-up (tag/variable-only versioning gap): hash SHA-256 hex (64 ky tu, lowercase) cua
+    /// tap tag id (sorted) + chu ky variable (sorted) hien tai cua prompt nay — CUNG mot co so
+    /// so sanh voi SyncService.VariableSignature/tagIdsBefore.SetEquals dang dung de phat hien
+    /// P12 (tag/variable-only), khong phat minh tieu chi rieng. SyncService (PushInsertAsync/
+    /// ApplyUpdateOrConflictAsync/ApplyResolvedPayloadAsync) PHAI gan lai cot nay MOI LAN tag/
+    /// variable co the da doi, de no LUON phan anh dung trang thai hien tai. Trigger DB
+    /// vault.fn_prompts_before_update so sanh OLD.meta_sig IS DISTINCT FROM NEW.meta_sig trong
+    /// WHEN clause — nho vay mot thay doi CHI o tag/variable (truoc day trigger bo qua hoan
+    /// toan, khong bump Version, khong ghi sync_log) gio bump Version + ghi sync_log giong het
+    /// mot thay doi noi dung that su, dong nghia voi P22 (kiem tra version luc resolve) va
+    /// baseVersion check luc push khong con bi "mu" truoc loai thay doi nay nua. Null cho cac
+    /// dong cu (truoc migration nay) — trigger van an toan vi OLD/NEW deu null cho toi lan
+    /// UPDATE dau tien co gan cot nay.
+    /// </summary>
+    [MaxLength(64)]
+    public string? MetaSig { get; set; }
+
     public ICollection<PromptTag> PromptTags { get; set; } = [];
     public ICollection<PromptVariable> Variables { get; set; } = [];
 }

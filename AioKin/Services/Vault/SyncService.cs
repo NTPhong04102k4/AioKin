@@ -556,6 +556,9 @@ public class SyncService : ISyncService
             VariableID = v.VariableId, PromptID = prompt.PromptID, VarKey = v.VarKey, Label = v.Label, DefaultValue = v.DefaultValue, VarType = v.VarType
         })];
         prompt.PromptTags = [.. refs.TagIds.Select(id => new PromptTag { PromptID = prompt.PromptID, TagID = id })];
+        // Follow-up meta_sig: gan tu luc insert de cot nay LUON phan anh dung trang thai hien
+        // tai ngay tu dau, khong doi den lan UPDATE dau tien moi co gia tri that (xem Prompt.MetaSig).
+        prompt.MetaSig = ComputeMetaSig(prompt);
 
         _db.Prompts.Add(prompt);
 
@@ -615,15 +618,6 @@ public class SyncService : ISyncService
         if (refs is null)
             return Rejected(entry.PromptId, rejectReason!);
 
-        // P12: chup lai TRUOC khi sua — can biet sau do day co phai la thay doi CHI tag/variable
-        // hay khong, vi trigger DB chi bump version/ghi sync_log khi cot noi dung that su doi.
-        var titleBefore = prompt.Title;
-        var contentBefore = prompt.Content;
-        var descriptionBefore = prompt.Description;
-        var categoryBefore = prompt.CategoryID;
-        var tagIdsBefore = prompt.PromptTags.Select(pt => pt.TagID).ToHashSet();
-        var variablesBefore = prompt.Variables.Select(VariableSignature).OrderBy(s => s).ToArray();
-
         if (refs.NewCategory is not null)
             _db.Categories.Add(refs.NewCategory);
         if (refs.NewTags.Count > 0)
@@ -653,33 +647,21 @@ public class SyncService : ISyncService
         if (variablesProvided)
             ReplaceVariables(prompt, entry.Payload.Variables!);
 
-        // P12: neu cot prompt (title/content/description/category) KHONG doi, trigger se khong
-        // bump version/ghi sync_log — tu ghi 1 dong thu cong neu tag/variable co doi that, de
-        // Task 3 (pull) con biet ma dong bo cho cac thiet bi khac. Quyet dinh + Add() dong log
-        // nay o DAY (TRUOC SaveChangesAsync — fix round 1, finding 2): du lieu can de so sanh
-        // (title/content/description/category MOI, refs.TagIds, danh sach variable moi) da co
-        // du trong bo nho, khong can doi SaveChangesAsync tra ve gi ca. Prompt.Version cung da
-        // dung san o day cho truong hop nay: khi noi dung KHONG doi, trigger vault
-        // .fn_prompts_before_update khong chay nen version se khong doi qua SaveChangesAsync —
-        // gia tri hien tai cua prompt.Version chinh la gia tri cuoi cung. Gop chung vao MOT
-        // SaveChangesAsync duy nhat voi prompt/tag/variable dam bao tag/variable va sync_log
-        // hoac cung thanh cong hoac cung khong ghi gi — khong con truong hop tag da luu ma
-        // sync_log bi mat vi mot SaveChangesAsync THU HAI rieng biet loi giua chung.
-        var contentUnchanged =
-            titleBefore == prompt.Title &&
-            contentBefore == prompt.Content &&
-            descriptionBefore == prompt.Description &&
-            categoryBefore == prompt.CategoryID;
-
-        if (contentUnchanged)
-        {
-            var tagsActuallyChanged = tagsProvided && !tagIdsBefore.SetEquals(refs.TagIds);
-            var variablesActuallyChanged = variablesProvided &&
-                !variablesBefore.SequenceEqual(prompt.Variables.Select(VariableSignature).OrderBy(s => s));
-
-            if (tagsActuallyChanged || variablesActuallyChanged)
-                AddTagVariableSyncLogEntry(membership.SpaceID, prompt, deviceId, membership.UserID);
-        }
+        // Follow-up meta_sig (thay the workaround P12 cu — xem Prompt.MetaSig): truoc day, khi
+        // cot prompt (title/content/description/category) KHONG doi, trigger vault
+        // .fn_prompts_before_update khong bump version/ghi sync_log, nen SyncService phai tu ghi
+        // 1 dong sync_log thu cong (AddTagVariableSyncLogEntry, da bo — xem ghi chu tai vi tri cu
+        // cua ham do) moi khi tag/variable doi THAT trong luc noi dung khong doi, de Task 3 (pull)
+        // con biet ma dong bo. Gio chi can gan lai MetaSig moi khi tag/variable CO THE da doi
+        // (tagsProvided/variablesProvided — bat ke content co doi hay khong, de cot nay LUON
+        // phan anh dung trang thai hien tai, khong chi trong truong hop P12 hep truoc day) —
+        // trigger DB tu so sanh OLD.meta_sig/NEW.meta_sig va tu bump version + ghi sync_log neu
+        // that su khac nhau, KHONG con can ghi thu cong tu C# nua (xem
+        // followup-tag-variable-versioning-report.md ve quyet dinh bo AddTagVariableSyncLogEntry
+        // thay vi giu lai — giu lai se ghi TRUNG mot dong sync_log thu 2 cho CUNG 1 thay doi, vi
+        // trigger gio cung se tu ghi roi).
+        if (tagsProvided || variablesProvided)
+            prompt.MetaSig = ComputeMetaSig(prompt);
 
         try
         {
@@ -981,20 +963,6 @@ public class SyncService : ISyncService
         if (refs.NewTags.Count > 0)
             _db.Tags.AddRange(refs.NewTags);
 
-        // P12 (tai su dung tu ApplyUpdateOrConflictAsync): chup lai TRUOC khi sua -- can biet sau
-        // do day co phai la thay doi CHI tag/variable hay khong. IsDeletedBefore duoc chup rieng
-        // vi ham nay LUON gan lai prompt.IsDeleted = false ben duoi (khac push, noi IsDeleted chi
-        // bi dong den boi PushDeleteAsync rieng) -- neu remote dang la mot ban ghi DA XOA, undelete
-        // o day tu no da la mot content change THAT (trigger se tu bump version/ghi log binh
-        // thuong), khong can nhanh P12 thu cong nay xu ly.
-        var titleBefore = prompt.Title;
-        var contentBefore = prompt.Content;
-        var descriptionBefore = prompt.Description;
-        var categoryBefore = prompt.CategoryID;
-        var isDeletedBefore = prompt.IsDeleted;
-        var tagIdsBefore = prompt.PromptTags.Select(pt => pt.TagID).ToHashSet();
-        var variablesBefore = prompt.Variables.Select(VariableSignature).OrderBy(s => s).ToArray();
-
         prompt.Title = payload.Title;
         prompt.Content = payload.Content;
         prompt.Description = payload.Description;
@@ -1011,22 +979,14 @@ public class SyncService : ISyncService
 
         prompt.IsDeleted = false;
 
-        var contentUnchanged =
-            titleBefore == prompt.Title &&
-            contentBefore == prompt.Content &&
-            descriptionBefore == prompt.Description &&
-            categoryBefore == prompt.CategoryID &&
-            isDeletedBefore == prompt.IsDeleted;
-
-        if (contentUnchanged)
-        {
-            var tagsActuallyChanged = tagsProvided && !tagIdsBefore.SetEquals(refs.TagIds);
-            var variablesActuallyChanged = variablesProvided &&
-                !variablesBefore.SequenceEqual(prompt.Variables.Select(VariableSignature).OrderBy(s => s));
-
-            if (tagsActuallyChanged || variablesActuallyChanged)
-                AddTagVariableSyncLogEntry(spaceId, prompt, deviceId, userId);
-        }
+        // Follow-up meta_sig (thay the workaround P12 cu — xem ghi chu tuong tu trong
+        // ApplyUpdateOrConflictAsync va Prompt.MetaSig): gan lai MetaSig moi khi tag/variable CO
+        // THE da doi, bat ke title/content/description/category/IsDeleted co doi hay khong —
+        // trigger DB tu lo phan bump version/ghi sync_log qua so sanh OLD.meta_sig/NEW.meta_sig,
+        // khong con can AddTagVariableSyncLogEntry ghi thu cong nua (da bo, xem ghi chu quyet
+        // dinh trong followup-tag-variable-versioning-report.md).
+        if (tagsProvided || variablesProvided)
+            prompt.MetaSig = ComputeMetaSig(prompt);
 
         return null;
     }
@@ -1213,42 +1173,28 @@ public class SyncService : ISyncService
     }
 
     /// <summary>
-    /// P12: chuan bi 1 dong sync_log cho thay doi CHI o tag/variable — trigger DB
-    /// (sync.fn_prompts_write_log) chi lang nghe cot cua BANG prompts, khong biet gi ve
-    /// prompt_tags/prompt_variables nen se khong tu ghi truong hop nay. "kind":"tags_variables"
-    /// la dau hieu de Task 3 (pull) phan biet voi payload noi dung prompt day du (to_jsonb cua
-    /// trigger khong co truong "kind").
-    ///
-    /// Fix round 1, finding 2: ham nay CHI Add() vao ChangeTracker, KHONG tu SaveChangesAsync —
-    /// goi tai ApplyUpdateOrConflictAsync TRUOC dong SaveChangesAsync "chinh" cua prompt/tag/
-    /// variable, de ca 3 loai thay doi cung nam trong MOT giao dich atomic. Truoc day ham nay
-    /// tu Save rieng SAU khi prompt/tag/variable da Save xong — neu lan Save thu hai nay loi thi
-    /// tag da duoc luu nhung khong co sync_log tuong ung, thiet bi khac se khong bao gio thay
-    /// thay doi do o lan pull ke tiep.
+    /// Follow-up (tag/variable-only versioning gap): hash SHA-256 hex (lowercase, 64 ky tu) cua
+    /// tap tag id (sorted) + chu ky variable (sorted qua VariableSignature) HIEN TAI cua prompt —
+    /// CUNG mot co so so sanh voi tagIdsBefore.SetEquals/variablesBefore.SequenceEqual da dung o
+    /// P12 truoc day (xem git blame ApplyUpdateOrConflictAsync/ApplyResolvedPayloadAsync ban cu),
+    /// khong phat minh tieu chi rieng. Duoc goi lai (va gan vao Prompt.MetaSig) o MOI diem co the
+    /// lam tag/variable doi (PushInsertAsync luc tao, ApplyUpdateOrConflictAsync/
+    /// ApplyResolvedPayloadAsync moi khi tagsProvided/variablesProvided) de cot nay LUON phan anh
+    /// dung trang thai hien tai — trigger DB (vault.fn_prompts_before_update, WHEN OLD.meta_sig
+    /// IS DISTINCT FROM NEW.meta_sig) dua vao do de tu bump Version + ghi sync_log ngay ca khi
+    /// CHI tag/variable doi, khong con can workaround AddTagVariableSyncLogEntry ghi thu cong nua
+    /// (da bo — xem quyet dinh trong followup-tag-variable-versioning-report.md: giu lai se ghi
+    /// TRUNG 1 dong sync_log thu hai cho CUNG 1 thay doi, vi dieu kien kich hoat cua no
+    /// [contentUnchanged VA tag/variable doi that] gio CHINH LA dieu kien trigger DB da tu bump
+    /// version — da chung minh bang test SyncMetaSigTests.Push_chi_doi_tag_khong_tao_sync_log_trung).
     /// </summary>
-    private void AddTagVariableSyncLogEntry(Guid spaceId, Prompt prompt, string? deviceId, Guid userId)
+    private static string ComputeMetaSig(Prompt prompt)
     {
-        var payloadJson = System.Text.Json.JsonSerializer.Serialize(new
-        {
-            kind = "tags_variables",
-            promptId = prompt.PromptID,
-            tagIds = prompt.PromptTags.Select(pt => pt.TagID).ToArray(),
-            variables = prompt.Variables.Select(v => new { v.VariableID, v.VarKey, v.Label, v.DefaultValue, v.VarType }).ToArray()
-        });
-
-        _db.SyncLog.Add(new SyncLogEntry
-        {
-            SpaceID = spaceId,
-            EntityType = "prompt",
-            EntityID = prompt.PromptID,
-            Operation = "update",
-            PayloadJson = payloadJson,
-            OriginDeviceId = deviceId,
-            // Carry-forward Task 3: dong nay duoc app tu ghi (khong qua trigger) nen gan
-            // OriginUserId truc tiep tu membership.UserID cua chinh phien push.
-            OriginUserId = userId,
-            Version = prompt.Version
-        });
+        var tagPart = string.Join(',', prompt.PromptTags.Select(pt => pt.TagID).OrderBy(id => id));
+        var varPart = string.Join(',', prompt.Variables.Select(VariableSignature).OrderBy(s => s, StringComparer.Ordinal));
+        var raw = tagPart + "||" + varPart;
+        var hashBytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw));
+        return Convert.ToHexStringLower(hashBytes);
     }
 
     private static SyncPushResponse Rejected(Guid promptId, string error) => new() { PromptId = promptId, Status = "rejected", Error = error };

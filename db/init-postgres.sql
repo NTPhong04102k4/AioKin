@@ -2,12 +2,10 @@
 --   cd AioKin && dotnet ef migrations script -o ../db/init-postgres.sql
 -- (khong dung --idempotent — day la script khoi tao 1 lan cho DB Supabase trong,
 -- xem docs/database.md muc 2.1). Nguon su that la AioKin/Data/Migrations/, khong
--- phai file nay. Sinh lai lan nay (final fix wave, finding 4): ban cu la mot file
--- viet tay tu tay (draft), da lech khoi 10 migration EF that su tren nhanh nay
--- (trigger version-bump thieu dieu kien is_deleted, sync_conflicts thieu space_id/
--- local_operation/remote_is_deleted, devices dung khoa device_id-only thay vi
--- (user_id, device_id)) — xem .superpowers/sdd/2026-09-25-promptvault-sync-engine/
--- final-findings.md muc 4.
+-- phai file nay. Sinh lai lan nay (follow-up tag/variable-only versioning, migration
+-- AddPromptMetaSig): them cot vault.prompts.meta_sig va cap nhat WHEN clause cua
+-- trg_prompts_before_update de bump version/ghi sync_log ca khi CHI tag/variable
+-- doi — xem .superpowers/sdd/followup-tag-variable-versioning-report.md.
 CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
     migration_id character varying(150) NOT NULL,
     product_version character varying(32) NOT NULL,
@@ -563,6 +561,35 @@ ALTER TABLE sync.sync_conflicts ADD space_id uuid NOT NULL DEFAULT '00000000-000
 
 INSERT INTO "__EFMigrationsHistory" (migration_id, product_version)
 VALUES ('20260926003505_AddSyncConflictOperationMetadata', '9.0.9');
+
+ALTER TABLE vault.prompts ADD meta_sig character varying(64);
+
+DROP TRIGGER IF EXISTS trg_prompts_before_update ON vault.prompts;
+
+CREATE OR REPLACE FUNCTION vault.fn_prompts_before_update()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.version := OLD.version + 1;
+    NEW.updated_date := now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_prompts_before_update
+    BEFORE UPDATE ON vault.prompts
+    FOR EACH ROW
+    WHEN (
+        OLD.title IS DISTINCT FROM NEW.title OR
+        OLD.content IS DISTINCT FROM NEW.content OR
+        OLD.description IS DISTINCT FROM NEW.description OR
+        OLD.category_id IS DISTINCT FROM NEW.category_id OR
+        OLD.is_deleted IS DISTINCT FROM NEW.is_deleted OR
+        OLD.meta_sig IS DISTINCT FROM NEW.meta_sig
+    )
+    EXECUTE FUNCTION vault.fn_prompts_before_update();
+
+INSERT INTO "__EFMigrationsHistory" (migration_id, product_version)
+VALUES ('20260926063044_AddPromptMetaSig', '9.0.9');
 
 COMMIT;
 
