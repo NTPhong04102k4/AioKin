@@ -225,12 +225,23 @@ public class SyncService : ISyncService
 
             await transaction.CommitAsync(cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
+            // Fix round 2, finding 4 (con sot lai tu round 1): "ex is not OperationCanceledException"
+            // la SAI — mot DB COMMAND TIMEOUT (hoac timeout cua HttpClient ben duoi, xem catch cho
+            // blob storage) nem TaskCanceledException, la MOT LOP CON cua OperationCanceledException,
+            // nen filter cu vo tinh de loi timeout nay LOT QUA catch va rot thang thanh 500 chua xu
+            // ly — dung diem ma finding nay yeu cau phai xuong cap nhe nhang. So sanh voi
+            // cancellationToken.IsCancellationRequested (token CUA CHINH request nay, khong phai
+            // kieu exception) moi phan biet dung: caller THAT SU huy request (token nay da huy) thi
+            // van cho loi truyen tiep binh thuong (khong che giau mot huy that su); con timeout NOI
+            // BO (vd HttpClient 30s, DB command timeout) — nem TaskCanceledException nhung
+            // cancellationToken cua request KHONG he bi huy — thi duoc bat va xu ly o day.
+            //
             // Day la nhanh loi DUY NHAT con lai cua P13: that bai o day nghia la KHONG THE doc
-            // duoc trang thai cua space (su co ha tang that su, vd mat ket noi DB) — khac han voi
-            // upload len blob storage (best-effort, xem catch ben duoi), khong the "am tham tra
-            // ve rong" vi khong co gi de tra ca.
+            // duoc trang thai cua space (su co ha tang that su, vd mat ket noi DB/DB timeout) —
+            // khac han voi upload len blob storage (best-effort, xem catch ben duoi), khong the
+            // "am tham tra ve rong" vi khong co gi de tra ca.
             _db.ChangeTracker.Clear();
             _logger.LogError(ex, "Khong the doc trang thai de tao snapshot cho space {SpaceUuid}", membership.SpaceUUID);
             return OperationResult.Fail("SyncUnavailable", "Khong the tao snapshot dong bo luc nay. Vui long thu lai sau.");
@@ -282,8 +293,16 @@ public class SyncService : ISyncService
                 });
                 await _db.SaveChangesAsync(cancellationToken);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
+                // Fix round 2, finding 4: cung ly do voi catch ben tren — HttpClient cho Supabase
+                // Storage co Timeout=30s (Program.cs); khi timeout no nem TaskCanceledException
+                // (mot lop con cua OperationCanceledException), du CHINH request nay khong he bi
+                // huy. Filter cu "ex is not OperationCanceledException" vo tinh de loi timeout NAY
+                // thoat khoi catch va rot thang thanh 500 — dung diem finding nay yeu cau phai
+                // xuong cap nhe nhang (best-effort). Kiem tra cancellationToken.IsCancellationRequested
+                // moi phan biet dung "request bi huy that" (van cho throw tiep) voi "timeout noi
+                // bo cua chinh HttpClient/Supabase" (bat o day, chi mat audit, khong mat response).
                 _db.ChangeTracker.Clear();
                 _logger.LogWarning(ex, "Upload snapshot audit that bai cho space {SpaceUuid} — van tra ve noi dung inline cho client.", membership.SpaceUUID);
             }
