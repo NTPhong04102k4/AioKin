@@ -543,7 +543,9 @@ public class SyncService : ISyncService
             CategoryID = refs.CategoryId,
             Title = entry.Payload!.Title,
             Content = entry.Payload.Content,
-            Description = entry.Payload.Description,
+            // Insert: khong co gia tri truoc do nen omit/ClearDescription deu ra null nhu nhau —
+            // dung chung ResolvedDescription de nhat quan voi update/resolve, khong doi hanh vi.
+            Description = ResolvedDescription(entry.Payload),
             // Carry-forward: KHONG BAO GIO tin Version tu client tren insert — luon bat dau 1.
             Version = 1,
             UpdatedDeviceId = deviceId,
@@ -625,7 +627,11 @@ public class SyncService : ISyncService
 
         prompt.Title = entry.Payload!.Title;
         prompt.Content = entry.Payload.Content;
-        prompt.Description = entry.Payload.Description;
+        // Follow-up (description omit=unchanged): CHI ghi de Description khi client THAT SU gui
+        // gia tri hoac ClearDescription=true — omit ca hai nghia la giu nguyen, cung pattern voi
+        // CategoryId/ClearCategory ngay ben duoi (xem PromptPayload.Description).
+        if (DescriptionProvided(entry.Payload))
+            prompt.Description = ResolvedDescription(entry.Payload);
         // Fix round 1, finding 4: CHI ghi de CategoryID khi client THAT SU gui CategoryId hoac
         // ClearCategory=true (refs.CategoryProvided) — omit ca hai nghia la giu nguyen category
         // hien co, dung theo ngu nghia G12 da ap dung cho Tags/Variables (truoc day omit se bi
@@ -965,7 +971,10 @@ public class SyncService : ISyncService
 
         prompt.Title = payload.Title;
         prompt.Content = payload.Content;
-        prompt.Description = payload.Description;
+        // Follow-up (description omit=unchanged): cung dieu kien voi ApplyUpdateOrConflictAsync
+        // — resolve (merged/keep_local) omit description khong duoc am tham xoa description hien co.
+        if (DescriptionProvided(payload))
+            prompt.Description = ResolvedDescription(payload);
         if (refs.CategoryProvided)
             prompt.CategoryID = refs.CategoryId;
 
@@ -1120,11 +1129,26 @@ public class SyncService : ISyncService
         return (refs, null);
     }
 
+    /// <summary>
+    /// Follow-up (description omit=unchanged): true khi client THAT SU gui description khac
+    /// null hoac ClearDescription=true — chi khi do noi goi moi duoc ghi de Prompt.Description.
+    /// False (ca Description lan ClearDescription deu vang mat) nghia la "khong dong den", giu
+    /// nguyen description hien co — cung ngu nghia CategoryProvided o tren ap dung cho CategoryID.
+    /// Khong can lookup DB (khac ResolveCategoryAndTagsAsync) nen lam static, khong qua ResolvedRefs.
+    /// </summary>
+    private static bool DescriptionProvided(PromptPayload payload) => payload.ClearDescription || payload.Description is not null;
+
+    /// <summary>Gia tri Description se ghi xuong khi DescriptionProvided tra ve true.</summary>
+    private static string? ResolvedDescription(PromptPayload payload) => payload.ClearDescription ? null : payload.Description;
+
     private static bool IsIdenticalRetry(Prompt existing, PromptPayload payload, Guid? resolvedCategoryId, List<Guid> resolvedTagIds)
     {
         if (!string.Equals(existing.Title, payload.Title, StringComparison.Ordinal)) return false;
         if (!string.Equals(existing.Content, payload.Content, StringComparison.Ordinal)) return false;
-        if (!string.Equals(existing.Description, payload.Description, StringComparison.Ordinal)) return false;
+        // Follow-up (description omit=unchanged): so sanh voi gia tri DA RESOLVE (giong het cach
+        // resolvedCategoryId duoc dung ben duoi thay vi payload.CategoryId tho) — retry-insert
+        // giong het lan dau se cho ra cung mot ResolvedDescription, ke ca khi dung ClearDescription.
+        if (!string.Equals(existing.Description, ResolvedDescription(payload), StringComparison.Ordinal)) return false;
         if (existing.CategoryID != resolvedCategoryId) return false;
 
         if (payload.Tags is not null)

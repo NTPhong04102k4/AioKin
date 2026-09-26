@@ -41,7 +41,21 @@ public class PromptPayload
     public string Title { get; set; } = string.Empty;
 
     public string Content { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Follow-up (description omit=unchanged, cung ngu nghia voi CategoryId/ClearCategory ben
+    /// duoi): "Description omitted/null" gio la GIU NGUYEN description hien co, KHONG con bi
+    /// ghi de thanh null nhu truoc — bug mat du lieu that su khi Expo client (chua co cot
+    /// description) push update va am tham xoa description da co tu client khac. Muon xoa han,
+    /// client phai gui tuong minh ClearDescription = true. Description co gia tri (khac null) =
+    /// gan gia tri do. Ca hai deu vang mat (Description null, ClearDescription false) = omit,
+    /// giu nguyen. Dung cung "co rieng" thay vi JsonElement?/wrapper de khong can custom
+    /// JsonConverter, giong het cach lam cua ClearCategory.
+    /// </summary>
     public string? Description { get; set; }
+
+    /// <summary>Xoa han description hien co — xem ghi chu tren Description.</summary>
+    public bool ClearDescription { get; set; }
 
     /// <summary>Ca hai deu tu client sinh khi tao category moi ngay trong luc sua prompt.</summary>
     public Guid? CategoryId { get; set; }
