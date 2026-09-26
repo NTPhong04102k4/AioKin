@@ -325,8 +325,8 @@ authentication.AddCookie(ExternalAuthScheme, options =>
 // Google/Facebook chi dang ky khi co credential: AddGoogle/AddFacebook nem ngay luc khoi
 // dong neu ClientId rong, nen dang ky vo dieu kien se lam app khong boot duoc tren may
 // chua cau hinh SSO.
-var googleClientId = config["Google:ClientId"];
-var googleClientSecret = config["Google:ClientSecret"];
+var googleClientId = config["Authentication:Google:ClientId"];
+var googleClientSecret = config["Authentication:Google:ClientSecret"];
 if (!string.IsNullOrWhiteSpace(googleClientId) && !string.IsNullOrWhiteSpace(googleClientSecret))
 {
     authentication.AddGoogle(options =>
@@ -339,8 +339,8 @@ if (!string.IsNullOrWhiteSpace(googleClientId) && !string.IsNullOrWhiteSpace(goo
     });
 }
 
-var facebookAppId = config["Facebook:AppId"];
-var facebookAppSecret = config["Facebook:AppSecret"];
+var facebookAppId = config["Authentication:Facebook:AppId"];
+var facebookAppSecret = config["Authentication:Facebook:AppSecret"];
 if (!string.IsNullOrWhiteSpace(facebookAppId) && !string.IsNullOrWhiteSpace(facebookAppSecret))
 {
     authentication.AddFacebook(options =>

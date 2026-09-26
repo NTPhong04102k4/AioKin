@@ -511,13 +511,14 @@ public class AuthController : ControllerBase
     /// <summary>Bat dau dang nhap Google. Callback do middleware xu ly tai /auth/callback/google.</summary>
     [HttpGet("login/google")]
     [AllowAnonymous]
-    public IActionResult GoogleLogin()
+    public IActionResult GoogleLogin([FromQuery] string? prompt = "select_account")
     {
         // RedirectUri la noi ASP.NET Core quay ve SAU khi da xu ly CallbackPath — khong
         // duoc trung CallbackPath, neu khong se thanh vong lap.
-        var props = new AuthenticationProperties
+        var props = new GoogleChallengeProperties
         {
-            RedirectUri = Url.Action(nameof(GoogleFinalize)) ?? "/auth/finalize/google"
+            RedirectUri = Url.Action(nameof(GoogleFinalize)) ?? "/auth/finalize/google",
+            Prompt = string.IsNullOrWhiteSpace(prompt) ? "select_account" : prompt
         };
         return Challenge(props, GoogleDefaults.AuthenticationScheme);
     }
@@ -538,17 +539,49 @@ public class AuthController : ControllerBase
         return BuildOAuthPopupHtml(result, "GOOGLE_LOGIN_SUCCESS", "GOOGLE_LOGIN_ERROR");
     }
 
+    /// <summary>
+    /// Dang nhap Google tu SDK native (RN Google Sign-In): client tu lay id_token tu Google
+    /// roi gui len, server tu verify — khong can WebView/popup. Cung mot tai khoan/luong
+    /// lien-ket-theo-email voi luong webview o tren, chi khac cach lay id_token.
+    /// </summary>
+    [HttpPost("login/google/native")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType<TokenResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<OperationResult>(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GoogleNativeLogin([FromBody] GoogleNativeLoginRequest model)
+    {
+        var device = DeviceInfo.Resolve(model.DeviceId, model.DeviceName, model.Platform);
+        var result = await _oauthService.CompleteGoogleTokenLoginAsync(model.IdToken, device);
+
+        if (!result.Success)
+            return Unauthorized(OperationResult.Fail("InvalidGoogleToken", result.ErrorMessage));
+
+        return Ok(new TokenResponse
+        {
+            AccessToken = result.Token,
+            RefreshToken = result.RefreshToken,
+            ExpiresIn = result.ExpiresIn,
+            TokenType = "Bearer",
+            Scope = Roles.CUSTOMER
+        });
+    }
+
     // ─── SSO: Facebook ────────────────────────────────────────────────────────
 
     /// <summary>Bat dau dang nhap Facebook. Callback do middleware xu ly tai /auth/callback/facebook.</summary>
     [HttpGet("login/facebook")]
     [AllowAnonymous]
-    public IActionResult FacebookLogin()
+    public IActionResult FacebookLogin([FromQuery] string? authType = null)
     {
         var props = new AuthenticationProperties
         {
             RedirectUri = Url.Action(nameof(FacebookFinalize)) ?? "/auth/finalize/facebook"
         };
+        if (!string.IsNullOrWhiteSpace(authType))
+        {
+            props.Parameters["auth_type"] = authType;
+        }
         return Challenge(props, FacebookDefaults.AuthenticationScheme);
     }
 
@@ -566,6 +599,34 @@ public class AuthController : ControllerBase
         var result = await _oauthService.CompleteFacebookLoginAsync(auth);
         await HttpContext.SignOutAsync(ExternalCookieScheme);
         return BuildOAuthPopupHtml(result, "FACEBOOK_LOGIN_SUCCESS", "FACEBOOK_LOGIN_ERROR");
+    }
+
+    /// <summary>
+    /// Dang nhap Facebook tu SDK native (RN FBSDK): client tu lay access token tu Facebook
+    /// roi gui len, server tu verify qua debug_token — khong can WebView/popup. Cung mot
+    /// tai khoan/luong lien-ket-theo-email voi luong webview o tren, chi khac cach lay token.
+    /// </summary>
+    [HttpPost("login/facebook/native")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType<TokenResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<OperationResult>(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> FacebookNativeLogin([FromBody] FacebookNativeLoginRequest model)
+    {
+        var device = DeviceInfo.Resolve(model.DeviceId, model.DeviceName, model.Platform);
+        var result = await _oauthService.CompleteFacebookTokenLoginAsync(model.AccessToken, device);
+
+        if (!result.Success)
+            return Unauthorized(OperationResult.Fail("InvalidFacebookToken", result.ErrorMessage));
+
+        return Ok(new TokenResponse
+        {
+            AccessToken = result.Token,
+            RefreshToken = result.RefreshToken,
+            ExpiresIn = result.ExpiresIn,
+            TokenType = "Bearer",
+            Scope = Roles.CUSTOMER
+        });
     }
 
     /// <summary>
@@ -608,7 +669,13 @@ public class AuthController : ControllerBase
                            if (window.opener && typeof window.opener.postMessage === 'function') {
                              window.opener.postMessage(payload, {{JsonSerializer.Serialize(targetOrigin)}});
                            }
-                           setTimeout(function () { window.close(); }, {{closeDelayMs}});
+                           if (window.opener) {
+                             setTimeout(function () { window.close(); }, {{closeDelayMs}});
+                           } else if (!window.ReactNativeWebView) {
+                             setTimeout(function () {
+                               window.location.href = '/index.html#auth=' + encodeURIComponent(JSON.stringify(payload));
+                             }, {{closeDelayMs}});
+                           }
                          })();
                        </script>
                      </body></html>

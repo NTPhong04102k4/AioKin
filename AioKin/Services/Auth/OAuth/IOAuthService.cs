@@ -1,4 +1,5 @@
 using AioKin.Models.ViewModel.Auth.User;
+using AioKin.Services.Auth.Token;
 using Microsoft.AspNetCore.Authentication;
 
 namespace AioKin.Services.Auth.OAuth;
@@ -13,6 +14,12 @@ public interface IOAuthService
     Task<OAuthResult> CompleteGoogleLoginAsync(AuthenticateResult externalAuth);
 
     Task<OAuthResult> CompleteFacebookLoginAsync(AuthenticateResult externalAuth);
+
+    /// <summary>Dang nhap Google tu id_token do SDK native (vd React Native Google Sign-In) tra ve truc tiep.</summary>
+    Task<OAuthResult> CompleteGoogleTokenLoginAsync(string idToken, DeviceInfo device);
+
+    /// <summary>Dang nhap Facebook tu access token do SDK native (vd React Native FBSDK) tra ve truc tiep.</summary>
+    Task<OAuthResult> CompleteFacebookTokenLoginAsync(string accessToken, DeviceInfo device);
 }
 
 public class OAuthResult

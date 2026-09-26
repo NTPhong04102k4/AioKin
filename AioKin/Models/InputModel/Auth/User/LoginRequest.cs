@@ -47,3 +47,37 @@ public class LogoutRequest
     /// <summary>Refresh token de revoke khi logout. Bo trong thi chi blacklist access token.</summary>
     public string? RefreshToken { get; set; }
 }
+
+/// <summary>Dang nhap Google bang SDK native (RN Google Sign-In), khac voi luong popup /auth/login/google.</summary>
+public class GoogleNativeLoginRequest
+{
+    /// <summary>ID token JWT tra ve tu GoogleSignin.signIn() phia client. Server tu verify, khong tin client.</summary>
+    [Required(ErrorMessage = "idToken la bat buoc.")]
+    public string IdToken { get; set; } = string.Empty;
+
+    [MaxLength(100, ErrorMessage = "DeviceId toi da 100 ky tu.")]
+    public string? DeviceId { get; set; }
+
+    [MaxLength(120, ErrorMessage = "DeviceName toi da 120 ky tu.")]
+    public string? DeviceName { get; set; }
+
+    [MaxLength(20, ErrorMessage = "Platform toi da 20 ky tu.")]
+    public string? Platform { get; set; }
+}
+
+/// <summary>Dang nhap Facebook bang SDK native (RN FBSDK), khac voi luong popup /auth/login/facebook.</summary>
+public class FacebookNativeLoginRequest
+{
+    /// <summary>Access token tra ve tu LoginManager.logInWithPermissions() phia client. Server tu verify qua debug_token.</summary>
+    [Required(ErrorMessage = "accessToken la bat buoc.")]
+    public string AccessToken { get; set; } = string.Empty;
+
+    [MaxLength(100, ErrorMessage = "DeviceId toi da 100 ky tu.")]
+    public string? DeviceId { get; set; }
+
+    [MaxLength(120, ErrorMessage = "DeviceName toi da 120 ky tu.")]
+    public string? DeviceName { get; set; }
+
+    [MaxLength(20, ErrorMessage = "Platform toi da 20 ky tu.")]
+    public string? Platform { get; set; }
+}

@@ -35,6 +35,13 @@ public interface IUserService
     /// <summary>Ghi lai ket qua mot lan dang nhap: so lan sai, trang thai khoa, thoi diem dang nhap.</summary>
     Task<UserDb?> RecordLoginAttemptAsync(Guid userUuid, int loginAttempts, bool isLocked, DateTime? lockUntil, DateTime? lastLogin);
 
+    /// <summary>
+    /// Gan mot social id (Google/Facebook) len tai khoan da co san theo email, de lan sau
+    /// dang nhap duoc bang ca hai cach. Tra null neu khong tim thay user hoac user da co
+    /// san mot social id khac — khong ghi de len lien ket hien co.
+    /// </summary>
+    Task<UserDb?> LinkSocialAsync(Guid userUuid, string socialId, string provider);
+
     // ─── Quan tri nguoi dung ──────────────────────────────────────────────────
 
     Task<UserListResponse> GetUsersAsync(UserListQueryRequest query);
