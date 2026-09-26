@@ -847,7 +847,7 @@ public class SyncService : ISyncService
                     if (localPayload is null)
                         return OperationResult.Fail("ValidationError", "Du lieu local cua xung dot nay bi hong.");
 
-                    rejectReason = await ApplyResolvedPayloadAsync(membership.SpaceID, prompt, localPayload, cancellationToken);
+                    rejectReason = await ApplyResolvedPayloadAsync(membership.SpaceID, prompt, localPayload, callerDeviceId, membership.UserID, cancellationToken);
                 }
                 break;
 
@@ -860,7 +860,7 @@ public class SyncService : ISyncService
                 if (mergeValidationError is not null)
                     return OperationResult.Fail("ValidationError", mergeValidationError);
 
-                rejectReason = await ApplyResolvedPayloadAsync(membership.SpaceID, prompt, request.MergedPayload!, cancellationToken);
+                rejectReason = await ApplyResolvedPayloadAsync(membership.SpaceID, prompt, request.MergedPayload!, callerDeviceId, membership.UserID, cancellationToken);
                 break;
         }
 
@@ -911,8 +911,17 @@ public class SyncService : ISyncService
     /// nhanh goi ham nay (keep_local khi LocalOperation KHONG phai delete, va merged) deu ham y
     /// nguoi dung muon dong nay TON TAI voi noi dung nay -- undelete neu ben con lai dang o
     /// trang thai da xoa (G9).
+    ///
+    /// Fix round 1 (Task 4 review): P12 ap dung o day GIONG HET ApplyUpdateOrConflictAsync cua
+    /// push -- mot resolve (vd "merged" giu nguyen title/content/description/category cua remote
+    /// nhung doi tag) co the khong thay doi cot nao cua BANG prompts ca, nen trigger
+    /// vault.fn_prompts_before_update se KHONG bump version va sync.fn_prompts_write_log (UPDATE
+    /// trigger, dieu kien "version co doi") se KHONG ghi sync_log -- neu khong tu ghi thu cong o
+    /// day, thay doi tag/variable do se vinh vien vo hinh voi moi thiet bi KHAC (khong bao gio
+    /// xuat hien trong bat ky lan pull nao). Chup truoc/sau (bao gom ca IsDeleted, vi ham nay LUON
+    /// dat lai gia tri do ve false) roi so sanh y het pattern P12 cua push.
     /// </summary>
-    private async Task<string?> ApplyResolvedPayloadAsync(Guid spaceId, Prompt prompt, PromptPayload payload, CancellationToken cancellationToken)
+    private async Task<string?> ApplyResolvedPayloadAsync(Guid spaceId, Prompt prompt, PromptPayload payload, string? deviceId, Guid userId, CancellationToken cancellationToken)
     {
         var (refs, rejectReason) = await ResolveCategoryAndTagsAsync(spaceId, payload, cancellationToken);
         if (refs is null)
@@ -923,18 +932,52 @@ public class SyncService : ISyncService
         if (refs.NewTags.Count > 0)
             _db.Tags.AddRange(refs.NewTags);
 
+        // P12 (tai su dung tu ApplyUpdateOrConflictAsync): chup lai TRUOC khi sua -- can biet sau
+        // do day co phai la thay doi CHI tag/variable hay khong. IsDeletedBefore duoc chup rieng
+        // vi ham nay LUON gan lai prompt.IsDeleted = false ben duoi (khac push, noi IsDeleted chi
+        // bi dong den boi PushDeleteAsync rieng) -- neu remote dang la mot ban ghi DA XOA, undelete
+        // o day tu no da la mot content change THAT (trigger se tu bump version/ghi log binh
+        // thuong), khong can nhanh P12 thu cong nay xu ly.
+        var titleBefore = prompt.Title;
+        var contentBefore = prompt.Content;
+        var descriptionBefore = prompt.Description;
+        var categoryBefore = prompt.CategoryID;
+        var isDeletedBefore = prompt.IsDeleted;
+        var tagIdsBefore = prompt.PromptTags.Select(pt => pt.TagID).ToHashSet();
+        var variablesBefore = prompt.Variables.Select(VariableSignature).OrderBy(s => s).ToArray();
+
         prompt.Title = payload.Title;
         prompt.Content = payload.Content;
         prompt.Description = payload.Description;
         if (refs.CategoryProvided)
             prompt.CategoryID = refs.CategoryId;
 
-        if (payload.Tags is not null)
+        var tagsProvided = payload.Tags is not null;
+        var variablesProvided = payload.Variables is not null;
+
+        if (tagsProvided)
             ReplaceTags(prompt, refs.TagIds);
-        if (payload.Variables is not null)
-            ReplaceVariables(prompt, payload.Variables);
+        if (variablesProvided)
+            ReplaceVariables(prompt, payload.Variables!);
 
         prompt.IsDeleted = false;
+
+        var contentUnchanged =
+            titleBefore == prompt.Title &&
+            contentBefore == prompt.Content &&
+            descriptionBefore == prompt.Description &&
+            categoryBefore == prompt.CategoryID &&
+            isDeletedBefore == prompt.IsDeleted;
+
+        if (contentUnchanged)
+        {
+            var tagsActuallyChanged = tagsProvided && !tagIdsBefore.SetEquals(refs.TagIds);
+            var variablesActuallyChanged = variablesProvided &&
+                !variablesBefore.SequenceEqual(prompt.Variables.Select(VariableSignature).OrderBy(s => s));
+
+            if (tagsActuallyChanged || variablesActuallyChanged)
+                AddTagVariableSyncLogEntry(spaceId, prompt, deviceId, userId);
+        }
 
         return null;
     }
