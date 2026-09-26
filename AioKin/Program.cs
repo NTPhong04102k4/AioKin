@@ -239,16 +239,20 @@ builder.Services.AddScoped<ISyncService, SyncService>();
 
 // IBlobStorageService la OPTIONAL (xem SyncService.PullAsync, ruling P13): chi dang ky khi co
 // Storage:BaseUrl cau hinh — cung "skip gracefully khi thieu" nhu IEmailService/BrevoEmailService
-// o tren. Khong dang ky thi DI tra null cho tham so optional cua SyncService, va pull rot vao
-// nhanh retention-exceeded-nhung-khong-co-blob-storage (tra loi SyncUnavailable ro rang thay vi
-// 500 hay im lang tra ket qua rong).
+// o tren. Khong dang ky thi DI tra null cho tham so optional cua SyncService — pull van tra ve
+// snapshot binh thuong (upload audit la BEST-EFFORT, xem SyncService.BuildSnapshotFallbackAsync),
+// chi khong co BackupSnapshot audit trail.
 var storageBaseUrl = config["Storage:BaseUrl"];
 if (!string.IsNullOrWhiteSpace(storageBaseUrl))
 {
     builder.Services.AddHttpClient<IBlobStorageService, SupabaseStorageService>(http =>
     {
         http.BaseAddress = new Uri(storageBaseUrl.TrimEnd('/') + "/");
+        // Fix round 1, finding 4: Supabase Storage REST API doi CA HAI header — "apikey" VA
+        // "Authorization: Bearer <service key>" (thieu Authorization thi API tra 401 du apikey
+        // dung, ban truoc chi dat mot minh apikey).
         http.DefaultRequestHeaders.Add("apikey", config["Storage:ServiceKey"]);
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config["Storage:ServiceKey"]);
         http.Timeout = TimeSpan.FromSeconds(30);
     });
 }

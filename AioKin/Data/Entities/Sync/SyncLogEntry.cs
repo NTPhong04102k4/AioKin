@@ -43,5 +43,17 @@ public class SyncLogEntry
 
     public int Version { get; set; }
 
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>
+    /// Fix round 1, finding 3a: KHONG dat initializer C# (vd "= DateTime.UtcNow") o day. Truoc
+    /// ban fix nay, dong do khien MOI insert qua EF (vd AddTagVariableSyncLogEntry, cac dong
+    /// "tags_variables") gui thang gio App-clock trong cau INSERT, DE QUA HasDefaultValueSql
+    /// ("now()") ben DbContext — trong khi cac dong do trigger DB ghi (insert/update/delete noi
+    /// dung binh thuong) luon dung DB-clock (trigger khong tu dat created_at, xem ghi chu tren
+    /// class). Ket qua la hai "nguon" CreatedAt lech gio (app-clock vs DB-clock) tuy loai dong —
+    /// mot nguon skew that su cho SyncService.SafetyWindow (xem SyncService.cs), vi cursor an
+    /// toan so sanh CreatedAt voi DateTime.UtcNow CUA APP. De trong (default(DateTime)) thi EF
+    /// coi day la "chua duoc dat" va BO QUA cot nay khoi INSERT, de DB tu ap "now()" — CUNG mot
+    /// dong ho cho MOI loai dong sync_log, khong con lech.
+    /// </summary>
+    public DateTime CreatedAt { get; set; }
 }

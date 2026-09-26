@@ -7,6 +7,7 @@ using AioKin.Models.InputModel.Vault;
 using AioKin.Models.ViewModel.Vault;
 using AioKin.Services.Common.Storage;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace AioKin.Services.Vault;
 
@@ -23,7 +24,7 @@ public class SyncService : ISyncService
     private readonly IBlobStorageService? _blobStorage;
     private readonly ILogger<SyncService> _logger;
 
-    /// <summary>Neu so dong pending vuot nguong nay, snapshot re hon incremental (khi co blob storage).</summary>
+    /// <summary>Neu so dong pending vuot nguong nay, snapshot re hon incremental.</summary>
     private const int RowCountThreshold = 500;
 
     /// <summary>
@@ -35,15 +36,28 @@ public class SyncService : ISyncService
     /// qua sau khi no cuoi cung cung commit (cursor da vuot qua no). Fix: chi tra ve (va chi cho
     /// cursor tien toi) nhung dong da "du gia" hon SafetyWindow — du thoi gian de bat ky
     /// transaction nao khac dang ghi gan do chac chan da commit xong.
+    ///
+    /// Fix round 1, finding 3: day la mot giam nhe XAC SUAT (probabilistic mitigation), KHONG
+    /// PHAI mot dam bao toan hoc — no dua tren gia dinh "khong transaction nao ghi vao sync_log
+    /// keo dai qua SafetyWindow", dieu ma khong co gi ep buoc ve mat co so du lieu (mot query cham
+    /// bat thuong, GC pause, hay lock contention van co the vuot qua no trong ly thuyet). Fix dung
+    /// dan (ra ngoai pham vi con lai cua plan nay, de lai lam viec sau): cursor dua tren tinh
+    /// KHA KIEN cua transaction — vd so sanh voi pg_current_xact_id()/pg_snapshot_xmin() thay vi
+    /// mot khoang thoi gian co dinh. Gia tri nay CAU HINH duoc qua Sync:PullSafetyWindowSeconds
+    /// (mac dinh 10s, tang tu 2s ban dau — du sinh hon, giam xac suat that bai trong thuc te).
     /// </summary>
-    private static readonly TimeSpan SafetyWindow = TimeSpan.FromSeconds(2);
+    private readonly TimeSpan _safetyWindow;
 
-    public SyncService(AioKinDbContext db, ISpaceContext spaceContext, ILogger<SyncService> logger, IBlobStorageService? blobStorage = null)
+    public SyncService(AioKinDbContext db, ISpaceContext spaceContext, ILogger<SyncService> logger, IConfiguration configuration, IBlobStorageService? blobStorage = null)
     {
         _db = db;
         _spaceContext = spaceContext;
         _logger = logger;
         _blobStorage = blobStorage;
+        // Fix round 1, finding 3b: cung mot "convention" voi JwtConfiguration.ResolveAccessTokenMinutes
+        // — int.TryParse tren config[] thay vi GetValue<T>(), khong doi them goi Binder.
+        _safetyWindow = TimeSpan.FromSeconds(
+            int.TryParse(configuration["Sync:PullSafetyWindowSeconds"], out var seconds) && seconds > 0 ? seconds : 10);
     }
 
     public async Task<OperationResult> PushAsync(SyncPushRequest request, string? callerDeviceId, CancellationToken cancellationToken = default)
@@ -81,52 +95,54 @@ public class SyncService : ISyncService
         if (membership is null)
             return OperationResult.Fail("Forbidden", "Ban khong thuoc space nay.");
 
-        // Ruling P13: mot cursor THAT SU (since > 0, tuc la client da tung dong bo truoc do) ma
-        // nho hon dong sync_log CU NHAT con lai cho SPACE NAY nghia la mot doan lich su co the
-        // da bi cron retention xoa mat — khong the tra incremental an toan (se tra ve rong mot
-        // cach SAI, trong khi thuc ra co thay doi bi bo lot). Phai tra snapshot THAT, hoac (khong
-        // co blob storage) mot loi RO RANG — khong bao gio im lang tra "ban da dong bo day du"
-        // trong khi khong phai vay.
+        // Fix round 1, finding 1 (P13 violation): since == 0 (client CHUA TUNG dong bo) LUON
+        // duoc phuc vu bang SNAPSHOT — KHONG BAO GIO bang incremental, bat ke retention co "ve
+        // nhu" con nguyen hay khong. Ly do: mot incremental "tu dau" chi dung neu TOAN BO lich su
+        // sync_log ke tu dong dau tien cua space nay con nguyen ven — dieu nay KHONG THE kiem
+        // chung duoc, vi sync_log_id la mot IDENTITY DUNG CHUNG toan he thong (khong rieng tung
+        // space): "dong cu nhat con lai cho space nay co id lon" khong phan biet duoc giua "space
+        // nay chi moi hoat dong gan day" (an toan) voi "mot phan lich su CUA CHINH space nay da bi
+        // cron xoa" (khong an toan). Ban fix truoc day chi loai tru since=0 khoi retention check
+        // (tranh false-positive) NHUNG van cho no di qua incremental — dung la sai chieu nguoc
+        // lai: mot thiet bi moi pull LAN DAU sau khi lich su da bi xoa bot se nhan mot ket qua
+        // incremental THIEU (Changes rong/thieu) voi IsSnapshot=false + cursor hop le, trong y het
+        // "da dong bo day du" trong khi khong phai. Snapshot luon la mot "toan bo trang thai hien
+        // tai" chinh xac cho MOI truong hop nay, ke ca khi space chua co gi (Prompts rong).
+        if (since == 0)
+            return await BuildSnapshotFallbackAsync(membership, cancellationToken);
+
+        // Tu day tro di, since > 0 (client dang TIEP TUC mot phien dong bo THAT). Ruling P13: mot
+        // cursor nho hon dong sync_log CU NHAT con lai cho SPACE NAY nghia la mot doan lich su co
+        // the da bi cron retention xoa mat — khong the tra incremental an toan.
         //
-        // since == 0 (client CHUA TUNG dong bo) LUON duoc coi la an toan, du oldestLogId cua
-        // space nay co the rat lon: sync_log_id la IDENTITY DUNG CHUNG toan he thong (khong
-        // rieng tung space), nen mot space "tre" (it hoat dong truoc do o KHONG GIAN KHAC) hoan
-        // toan co the co dong dau tien voi id lon chi vi cac space KHAC da dung het id thap hon
-        // — khong co nghia la CHINH space nay da mat lich su nao. Neu khong loai tru truong hop
-        // since=0, moi lan pull-lan-dau se sai tra ve snapshot thay vi incremental rong dung.
+        // Deferred (KHONG sua trong lan fix nay — xem task-3-report.md): cong thuc nay van co the
+        // false-positive khi id toan he thong tang nhanh vi cac space KHAC, du CHINH space nay
+        // chua tung mat gi — chap nhan duoc (an toan hon incremental sai), da duoc ledger o
+        // progress.md la mot gap con lai.
         var oldestLogId = await _db.SyncLog
             .Where(s => s.SpaceID == membership.SpaceID)
             .OrderBy(s => s.SyncLogID)
             .Select(s => (long?)s.SyncLogID)
             .FirstOrDefaultAsync(cancellationToken);
 
-        var retentionExceeded = since > 0 && (oldestLogId is null || since < oldestLogId.Value - 1);
+        var retentionExceeded = oldestLogId is null || since < oldestLogId.Value - 1;
 
         if (retentionExceeded)
-        {
-            if (_blobStorage is null)
-            {
-                _logger.LogWarning(
-                    "Pull retention-exceeded nhung khong co IBlobStorageService (space={SpaceUuid}, since={Since})",
-                    spaceUuid, since);
-                return OperationResult.Fail(
-                    "SyncUnavailable",
-                    "Lich su dong bo cho khoang thoi gian nay da het han va khong the tao snapshot luc nay. Vui long thu lai sau hoac lien he ho tro.");
-            }
-
             return await BuildSnapshotFallbackAsync(membership, cancellationToken);
-        }
 
         // Volume check (toi uu, khong phai dung/sai): so dong se phai tra qua nhieu thi snapshot
-        // re hon — nhung day KHONG phai mat du lieu nhu retention, nen thieu blob storage o day
-        // khong phai loi, chi la incremental se lon hon binh thuong (van dung).
+        // re hon. Fix round 1, finding 4: BuildSnapshotFallbackAsync khong con doi hoi blob
+        // storage phai san sang (upload la best-effort ben trong no) nen o day KHONG con dieu
+        // kien "&& _blobStorage is not null" nhu truoc — thieu blob storage khong con la ly do de
+        // BO QUA toi uu nay.
         var pendingCount = await _db.SyncLog.CountAsync(s => s.SpaceID == membership.SpaceID && s.SyncLogID > since, cancellationToken);
-        if (pendingCount > RowCountThreshold && _blobStorage is not null)
+        if (pendingCount > RowCountThreshold)
             return await BuildSnapshotFallbackAsync(membership, cancellationToken);
 
-        // Ruling Task 3 (an toan cursor cho commit gan-dong-thoi): chi lay nhung dong da "du gia"
-        // hon SafetyWindow — xem ghi chu tren field SafetyWindow o dau class.
-        var threshold = DateTime.UtcNow - SafetyWindow;
+        // Ruling Task 3 (an toan cursor cho commit gan-dong-thoi, XAC SUAT chu khong dam bao —
+        // xem ghi chu tren field _safetyWindow o dau class): chi lay nhung dong da "du gia" hon
+        // _safetyWindow.
+        var threshold = DateTime.UtcNow - _safetyWindow;
         var rows = await _db.SyncLog
             .AsNoTracking()
             .Where(s => s.SpaceID == membership.SpaceID && s.SyncLogID > since && s.CreatedAt <= threshold)
@@ -143,8 +159,14 @@ public class SyncService : ISyncService
         // device) vua tao ra thay doi do, no da biet no vua ghi gi. So sanh device MOT MINH la
         // spoofable — 2 thanh vien KHAC NHAU trong mot space chia se co the tu chon trung
         // device_id (DeviceInfo la chuoi client tu dat luc dang nhap).
+        //
+        // Fix round 1, finding 5: CHI suppress khi callerDeviceId THAT SU khac null. Khong co
+        // dieu kien nay, hai phien KHONG co device (deviceId=null — vd web chua gui DeviceInfo)
+        // CUA CUNG MOT USER se so khop null==null va an lan nhau MOT CACH SAI — device=null nghia
+        // la "khong biet thiet bi nao", khong phai "mot thiet bi cu the ten null" nen khong the
+        // dung de suy ra "day la CHINH phien vua ghi".
         var visibleRows = rows
-            .Where(r => !(r.OriginUserId == membership.UserID && r.OriginDeviceId == callerDeviceId))
+            .Where(r => !(callerDeviceId is not null && r.OriginUserId == membership.UserID && r.OriginDeviceId == callerDeviceId))
             .ToList();
 
         var changes = await HydrateChangesAsync(membership.SpaceID, visibleRows, cancellationToken);
@@ -161,24 +183,58 @@ public class SyncService : ISyncService
     /// Ruling P5 (blocker): serialize mot DTO projection TUONG MINH — KHONG serialize thang cac
     /// Prompt entity (do co navigation property hai chieu, vd Prompt.PromptTags[].Prompt tro
     /// nguoc lai chinh no — System.Text.Json nem System.Text.Json.JsonException tren graph vong
-    /// nay). Ket qua duoc day len IBlobStorageService de luu vet/audit (BackupSnapshot), NHUNG
-    /// client KHONG doc snapshot qua duong do — no doc qua SnapshotJson tra thang trong response
-    /// (Expo gap G4: client di dong khong co credential Supabase de tu tai storage path).
+    /// nay). Ket qua duoc day len IBlobStorageService de luu vet/audit (BackupSnapshot) — BEST
+    /// EFFORT (fix round 1, finding 4): upload/audit that bai KHONG duoc chan noi dung tra ve
+    /// client, vi client KHONG doc snapshot qua duong Storage — no doc qua SnapshotJson tra thang
+    /// trong response (Expo gap G4: client di dong khong co credential Supabase de tu tai storage
+    /// path). Chi BackupSnapshot (audit trail noi bo) moi phu thuoc vao upload thanh cong.
+    ///
+    /// Fix round 1, finding 2: doc cursor (sync_log) TRUOC, prompts SAU, trong CUNG mot
+    /// transaction REPEATABLE READ — Postgres chup lai MOT snapshot nhat quan tai thoi diem
+    /// BeginTransaction cho ca hai lan doc. Neu doc rieng (khong transaction, nhu ban truoc), mot
+    /// push xay ra GIUA hai lan doc chi lot vao MOT trong hai (cursor thay no nhung prompts thi
+    /// khong, hoac nguoc lai) — client se resume qua mot thay doi no chua bao gio thuc su nhan
+    /// duoc noi dung.
     /// </summary>
     private async Task<OperationResult> BuildSnapshotFallbackAsync(SpaceMembership membership, CancellationToken cancellationToken)
     {
-        var prompts = await _db.Prompts
-            .AsNoTracking()
-            .Include(p => p.Variables)
-            .Include(p => p.PromptTags).ThenInclude(pt => pt.Tag)
-            .Where(p => p.SpaceID == membership.SpaceID && !p.IsDeleted)
-            .ToListAsync(cancellationToken);
+        List<Prompt> prompts;
+        long latestLogId;
 
-        var latestLogId = await _db.SyncLog
-            .Where(s => s.SpaceID == membership.SpaceID)
-            .OrderByDescending(s => s.SyncLogID)
-            .Select(s => (long?)s.SyncLogID)
-            .FirstOrDefaultAsync(cancellationToken) ?? 0;
+        try
+        {
+            await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken);
+
+            // Cung ap dung _safetyWindow cho cursor cua snapshot (khong phai de tranh bo qua mot
+            // commit gan-dong-thoi nhu nhanh incremental — snapshot da phan anh TOAN BO trang
+            // thai hien tai roi — ma de ResumeCursor khong "vuot qua" mot dong vua ghi ma chinh
+            // view REPEATABLE READ nay co the CHUA kip thay noi dung tuong ung).
+            var threshold = DateTime.UtcNow - _safetyWindow;
+            latestLogId = await _db.SyncLog
+                .Where(s => s.SpaceID == membership.SpaceID && s.CreatedAt <= threshold)
+                .OrderByDescending(s => s.SyncLogID)
+                .Select(s => s.SyncLogID)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            prompts = await _db.Prompts
+                .AsNoTracking()
+                .Include(p => p.Variables)
+                .Include(p => p.PromptTags).ThenInclude(pt => pt.Tag)
+                .Where(p => p.SpaceID == membership.SpaceID && !p.IsDeleted)
+                .ToListAsync(cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Day la nhanh loi DUY NHAT con lai cua P13: that bai o day nghia la KHONG THE doc
+            // duoc trang thai cua space (su co ha tang that su, vd mat ket noi DB) — khac han voi
+            // upload len blob storage (best-effort, xem catch ben duoi), khong the "am tham tra
+            // ve rong" vi khong co gi de tra ca.
+            _db.ChangeTracker.Clear();
+            _logger.LogError(ex, "Khong the doc trang thai de tao snapshot cho space {SpaceUuid}", membership.SpaceUUID);
+            return OperationResult.Fail("SyncUnavailable", "Khong the tao snapshot dong bo luc nay. Vui long thu lai sau.");
+        }
 
         var snapshot = new SyncSnapshotDto
         {
@@ -198,30 +254,39 @@ public class SyncService : ISyncService
         };
 
         var json = JsonSerializer.Serialize(snapshot);
-        var path = $"snapshots/{membership.SpaceUUID}/{DateTime.UtcNow:yyyyMMddHHmmssfff}.json.gz";
 
-        try
+        // Fix round 1, finding 4: upload BEST-EFFORT. That bai (hoac IBlobStorageService chua
+        // duoc dang ky) chi lam mat DI BackupSnapshot (audit trail) — KHONG lam mat noi dung tra
+        // ve client, vi "json" da co san trong bo nho tu truoc do roi.
+        if (_blobStorage is null)
         {
-            var url = await _blobStorage!.UploadAsync(path, json, cancellationToken);
-
-            _db.BackupSnapshots.Add(new BackupSnapshot
-            {
-                SpaceID = membership.SpaceID,
-                TriggeredByUserID = membership.UserID,
-                SnapshotType = "sync_catchup",
-                StoragePath = url,
-                FileSizeBytes = json.Length,
-                PromptCount = prompts.Count
-            });
-            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogWarning(
+                "Snapshot cho space {SpaceUuid} khong duoc luu audit: IBlobStorageService chua duoc dang ky (thieu Storage:BaseUrl).",
+                membership.SpaceUUID);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        else
         {
-            // Ruling P13: "blob storage unavailable/misconfigured" cung phai tra loi RO RANG,
-            // khong duoc 500 va khong duoc am tham tra ve mot ket qua rong/khong day du.
-            _db.ChangeTracker.Clear();
-            _logger.LogError(ex, "Khong the tao snapshot dong bo cho space {SpaceUuid}", membership.SpaceUUID);
-            return OperationResult.Fail("SyncUnavailable", "Khong the tao snapshot dong bo luc nay. Vui long thu lai sau.");
+            var path = $"snapshots/{membership.SpaceUUID}/{DateTime.UtcNow:yyyyMMddHHmmssfff}.json.gz";
+            try
+            {
+                var url = await _blobStorage.UploadAsync(path, json, cancellationToken);
+
+                _db.BackupSnapshots.Add(new BackupSnapshot
+                {
+                    SpaceID = membership.SpaceID,
+                    TriggeredByUserID = membership.UserID,
+                    SnapshotType = "sync_catchup",
+                    StoragePath = url,
+                    FileSizeBytes = json.Length,
+                    PromptCount = prompts.Count
+                });
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _db.ChangeTracker.Clear();
+                _logger.LogWarning(ex, "Upload snapshot audit that bai cho space {SpaceUuid} — van tra ve noi dung inline cho client.", membership.SpaceUUID);
+            }
         }
 
         return OperationResult.Ok(data: new SyncPullResponse
