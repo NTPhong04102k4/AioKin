@@ -143,3 +143,31 @@
 ---
 **Kết luận:** Hệ thống cục bộ (Local PostgreSQL 17 + pgAdmin 4 + .NET API + Npgsql Connection Pool) hoạt động hoàn hảo, đáp ứng đầy đủ tiêu chuẩn về tính toàn vẹn dữ liệu và hiệu năng trước khi đẩy migration / schema lên Supabase.
 
+---
+
+## 🔔 Kế hoạch mới: Firebase Cloud Messaging (FCM)
+
+> **Mục tiêu:** (1) Báo có phiên bản mới khi app đã bị đóng, (2) Báo hoàn tất cải thiện prompt (job chạy trên server), (3) Đảm bảo sync nền không bị mất khi user thoát app giữa lúc chạy.
+> **Trạng thái:** ⏳ Chưa bắt đầu — mới ở giai đoạn thiết kế (sketch), chưa sửa file thật nào.
+> **Phân vai:** Version mới & Cải thiện prompt → FCM (việc nặng nằm ở server). Sync đang chạy trên máy → `WorkManager` + local notification (không cần FCM). Sync xong trên server → FCM data-only để đánh thức các thiết bị khác của cùng user.
+
+| Task | Hạng mục | Repo | Trạng thái |
+|:---:|---|:---:|:---:|
+| **25** | Entity `DeviceToken` (UserId, Token, Platform, IsActive) + EF migration | `AioKin` | ✅ Hoàn tất |
+| **26** | `DeviceController`: `POST /device/register-token`, `DELETE /device/token/{token}` | `AioKin` | ✅ Hoàn tất |
+| **27** | `FcmNotificationService` (FirebaseAdmin SDK, multicast, prune dead token) | `AioKin` | ✅ Hoàn tất |
+| **28** | Hook vào `SyncService.PushAsync` — gửi data-only FCM đánh thức thiết bị khác cùng user | `AioKin` | ✅ Hoàn tất |
+| **29** | Background job "cải thiện prompt" (AI) + gửi FCM notification khi xong | `AioKin` | ✅ Hoàn tất |
+| **30** | Broadcast "phiên bản mới" qua FCM topic `app-updates` (hook từ release pipeline) | `AioKin` | ✅ Hoàn tất |
+| **31** | Setup Firebase (google-services.json, gradle plugin) | `NativeKotlin` | ⏳ Chưa bắt đầu |
+| **32** | `FcmService : FirebaseMessagingService` (onNewToken → register, onMessageReceived → route theo `data["type"]`) | `NativeKotlin` | ⏳ Chưa bắt đầu |
+| **33** | `VaultSyncWorker` (WorkManager, thay coroutine gắn Activity, sống sót qua app bị kill) | `NativeKotlin` | ⏳ Chưa bắt đầu |
+| **34** | Gọi register-token ngay sau login thành công | `NativeKotlin` | ⏳ Chưa bắt đầu |
+| **Extra** | Màn đăng nhập Google / Facebook `index.html` + Bridge `ReactNativeWebView.postMessage` | `AioKin` | ✅ Hoàn tất |
+
+### Ghi chú thiết kế (từ phiên thảo luận 2026-09-27)
+- **Trước khi sửa `SyncService`/`SyncController`:** phải chạy `impact()` (GitNexus) để check blast radius trước, theo rule của `CLAUDE.md`.
+- **Trước khi implement thật:** chạy `sr status` → chưa có `docs/project-profile.md` nên cần `learn-project` trước; `plan-feature` gắn `[needs approval]` nên phải dừng xin duyệt plan trước khi code.
+- Notification message (có `Notification` field) → OS tự hiển thị khi app background/killed. Data-only message → chỉ xử lý được khi app process còn sống, dùng cho việc đánh thức âm thầm (đa thiết bị), không dùng để báo UI khi app đã bị kill.
+- Rủi ro OEM (Xiaomi/Oppo/Vivo) diệt job nền bất kể foreground — cần test trên máy thật, có thể cần ongoing notification khi `VaultSyncWorker` đang chạy.
+

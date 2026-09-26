@@ -17,6 +17,7 @@ using AioKin.Services.Auth.StaffManagement;
 using AioKin.Services.Auth.Token;
 using AioKin.Services.Auth.User;
 using AioKin.Services.Common.Cache;
+using AioKin.Services.Common.Notification;
 using AioKin.Services.Common.Storage;
 using AioKin.Services.Content;
 using AioKin.Services.Family;
@@ -207,6 +208,39 @@ else
     builder.Services.AddSingleton<IEmailService, LoggingEmailService>();
 }
 
+// ─── Firebase Cloud Messaging (FCM) ───────────────────────────────────────────
+
+var firebaseCredsPath = config["Firebase:CredentialsPath"] ?? Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS");
+var firebaseCredsJson = config["Firebase:CredentialsJson"];
+
+if (!string.IsNullOrWhiteSpace(firebaseCredsJson) || (!string.IsNullOrWhiteSpace(firebaseCredsPath) && File.Exists(firebaseCredsPath)))
+{
+    try
+    {
+#pragma warning disable CS0618
+        var credential = !string.IsNullOrWhiteSpace(firebaseCredsJson)
+            ? Google.Apis.Auth.OAuth2.GoogleCredential.FromJson(firebaseCredsJson)
+            : Google.Apis.Auth.OAuth2.GoogleCredential.FromFile(firebaseCredsPath);
+#pragma warning restore CS0618
+
+        if (FirebaseAdmin.FirebaseApp.DefaultInstance is null)
+        {
+            FirebaseAdmin.FirebaseApp.Create(new FirebaseAdmin.AppOptions { Credential = credential });
+        }
+        builder.Services.AddSingleton<IFcmNotificationService, FcmNotificationService>();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[Firebase] Khong khoi tao duoc ({ex.Message}), fallback sang LoggingFcmNotificationService.");
+        builder.Services.AddSingleton<IFcmNotificationService, LoggingFcmNotificationService>();
+    }
+}
+else
+{
+    // Chua cau hinh credentials Firebase — fallback ghi log de dev & tests chay muot ma.
+    builder.Services.AddSingleton<IFcmNotificationService, LoggingFcmNotificationService>();
+}
+
 // ─── Service tang Auth ────────────────────────────────────────────────────────
 //
 // Scoped cho cung vong doi voi AioKinDbContext. AccessTokenService khong cham database nhung
@@ -237,6 +271,7 @@ builder.Services.AddScoped<ISpaceContext, SpaceContext>();
 builder.Services.AddScoped<ISpaceService, SpaceService>();
 builder.Services.AddScoped<IPromptBrowseService, PromptBrowseService>();
 builder.Services.AddScoped<ISyncService, SyncService>();
+builder.Services.AddScoped<IPromptEnrichmentService, PromptEnrichmentService>();
 
 // IBlobStorageService la OPTIONAL (xem SyncService.PullAsync, ruling P13): chi dang ky khi co
 // Storage:BaseUrl cau hinh — cung "skip gracefully khi thieu" nhu IEmailService/BrevoEmailService
@@ -397,6 +432,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseCors(CorsPolicy);
+
+// Phuc vu trang tinh wwwroot/index.html cho React Native WebView va trinh duyet
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 // Sau UseCors de phan hoi 429 van mang header CORS — thieu no thi trinh duyet bao loi
 // CORS thay vi hien dung "ban thao tac qua nhanh". Truoc UseAuthentication de tu choi

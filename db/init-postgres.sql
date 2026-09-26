@@ -601,5 +601,25 @@ CREATE TABLE security.data_protection_keys (
 INSERT INTO "__EFMigrationsHistory" (migration_id, product_version)
 VALUES ('20260926210353_AddDataProtectionKeys', '9.0.9');
 
+CREATE TABLE security.device_tokens (
+    device_token_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    token character varying(512) NOT NULL,
+    platform character varying(50) NOT NULL,
+    device_id character varying(100),
+    is_active boolean NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    last_used_at timestamp with time zone,
+    CONSTRAINT pk_device_tokens PRIMARY KEY (device_token_id),
+    CONSTRAINT fk_device_tokens_users_user_id FOREIGN KEY (user_id) REFERENCES security.users (user_id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX ix_device_tokens_token ON security.device_tokens (token);
+
+CREATE INDEX ix_device_tokens_user_id_is_active ON security.device_tokens (user_id, is_active);
+
+INSERT INTO "__EFMigrationsHistory" (migration_id, product_version)
+VALUES ('20260926215252_AddDeviceTokens', '9.0.9');
+
 COMMIT;
 

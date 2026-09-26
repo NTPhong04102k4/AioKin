@@ -21,10 +21,12 @@ namespace AioKin.Controllers.Vault;
 public class PromptsController : ControllerBase
 {
     private readonly IPromptBrowseService _browseService;
+    private readonly IPromptEnrichmentService? _enrichmentService;
 
-    public PromptsController(IPromptBrowseService browseService)
+    public PromptsController(IPromptBrowseService browseService, IPromptEnrichmentService? enrichmentService = null)
     {
         _browseService = browseService;
+        _enrichmentService = enrichmentService;
     }
 
     /// <summary>Danh sach prompt (chua xoa) trong 1 space, moi nhat truoc.</summary>
@@ -46,4 +48,14 @@ public class PromptsController : ControllerBase
     [HttpGet("{promptId:guid}")]
     public async Task<IActionResult> Get([FromQuery] Guid spaceUuid, Guid promptId, CancellationToken cancellationToken)
         => this.ToActionResult(await _browseService.GetAsync(spaceUuid, promptId, cancellationToken));
+
+    /// <summary>Yeu cau AI cai thien prompt trong background va gui FCM thong bao khi hoan tat.</summary>
+    [HttpPost("{promptId:guid}/enrich")]
+    public async Task<IActionResult> Enrich([FromQuery] Guid spaceUuid, Guid promptId, CancellationToken cancellationToken)
+    {
+        if (_enrichmentService is null)
+            return StatusCode(StatusCodes.Status501NotImplemented, "Dich vu AI prompt enrichment chua duoc dang ky.");
+
+        return this.ToActionResult(await _enrichmentService.EnrichPromptAsync(spaceUuid, promptId, cancellationToken));
+    }
 }

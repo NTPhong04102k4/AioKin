@@ -24,6 +24,7 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
     public DbSet<FamilyMember> FamilyMembers => Set<FamilyMember>();
     public DbSet<FamilyInvite> FamilyInvites => Set<FamilyInvite>();
     public DbSet<DeviceCredential> DeviceCredentials => Set<DeviceCredential>();
+    public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
     public DbSet<Space> Spaces => Set<Space>();
     public DbSet<SpaceMember> SpaceMembers => Set<SpaceMember>();
     public DbSet<Category> Categories => Set<Category>();
@@ -103,6 +104,16 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
         modelBuilder.Entity<DataProtectionKey>(entity =>
         {
             entity.ToTable("data_protection_keys", "security");
+        });
+
+        modelBuilder.Entity<DeviceToken>(entity =>
+        {
+            entity.HasIndex(t => t.Token).IsUnique();
+            entity.HasIndex(t => new { t.UserID, t.IsActive });
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(t => t.UserID)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Role>(entity => entity.HasIndex(r => r.RoleName).IsUnique());

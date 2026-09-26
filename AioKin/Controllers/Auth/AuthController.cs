@@ -602,6 +602,9 @@ public class AuthController : ControllerBase
                        <script>
                          (function () {
                            var payload = {{safePayload}};
+                           if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
+                             window.ReactNativeWebView.postMessage(typeof payload === 'string' ? payload : JSON.stringify(payload));
+                           }
                            if (window.opener && typeof window.opener.postMessage === 'function') {
                              window.opener.postMessage(payload, {{JsonSerializer.Serialize(targetOrigin)}});
                            }

@@ -5,6 +5,7 @@ using AioKin.Data.Entities.Vault;
 using AioKin.Models.InputModel.Auth.User;
 using AioKin.Models.InputModel.Vault;
 using AioKin.Models.ViewModel.Vault;
+using AioKin.Services.Common.Notification;
 using AioKin.Services.Common.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -22,6 +23,7 @@ public class SyncService : ISyncService
     private readonly AioKinDbContext _db;
     private readonly ISpaceContext _spaceContext;
     private readonly IBlobStorageService? _blobStorage;
+    private readonly IFcmNotificationService? _fcmService;
     private readonly ILogger<SyncService> _logger;
 
     /// <summary>Neu so dong pending vuot nguong nay, snapshot re hon incremental.</summary>
@@ -48,12 +50,19 @@ public class SyncService : ISyncService
     /// </summary>
     private readonly TimeSpan _safetyWindow;
 
-    public SyncService(AioKinDbContext db, ISpaceContext spaceContext, ILogger<SyncService> logger, IConfiguration configuration, IBlobStorageService? blobStorage = null)
+    public SyncService(
+        AioKinDbContext db,
+        ISpaceContext spaceContext,
+        ILogger<SyncService> logger,
+        IConfiguration configuration,
+        IBlobStorageService? blobStorage = null,
+        IFcmNotificationService? fcmService = null)
     {
         _db = db;
         _spaceContext = spaceContext;
         _logger = logger;
         _blobStorage = blobStorage;
+        _fcmService = fcmService;
         // Fix round 1, finding 3b: cung mot "convention" voi JwtConfiguration.ResolveAccessTokenMinutes
         // — int.TryParse tren config[] thay vi GetValue<T>(), khong doi them goi Binder.
         _safetyWindow = TimeSpan.FromSeconds(
@@ -87,6 +96,28 @@ public class SyncService : ISyncService
             ConflictCount = results.Count(r => r.Status == "conflict"),
             RejectedCount = results.Count(r => r.Status == "rejected")
         };
+
+        if (batch.AppliedCount > 0 && _fcmService is not null)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _fcmService.SendDataOnlyToUserDevicesAsync(
+                        membership.UserID,
+                        new Dictionary<string, string>
+                        {
+                            ["type"] = "sync_wake",
+                            ["spaceId"] = request.SpaceUuid.ToString()
+                        },
+                        excludeDeviceId: callerDeviceId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Loi khi gui data-only FCM sync wakeup cho user {UserId}", membership.UserID);
+                }
+            });
+        }
 
         return OperationResult.Ok(data: batch);
     }
