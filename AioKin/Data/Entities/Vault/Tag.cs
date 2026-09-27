@@ -6,7 +6,7 @@ namespace AioKin.Data.Entities.Vault;
 /// <summary>
 /// Id client tu sinh — cung ly do voi Category, xem ghi chu trong Category.cs.
 /// </summary>
-[Table("tags", Schema = "vault")]
+[Table("tags", Schema = "promptvault")]
 public class Tag
 {
     public const string SubjectType = "Tag";

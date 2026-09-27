@@ -307,7 +307,7 @@ public class SyncPushTests
 
     /// <summary>Follow-up (tag/variable-only versioning gap): push CHI doi tag (noi dung prompt
     /// giu nguyen) GIO PHAI bump version + ghi DUNG 1 dong sync_log moi qua trigger DB — truoc
-    /// day (P12) trigger vault.fn_prompts_before_update bo qua hoan toan thay doi loai nay (chi
+    /// day (P12) trigger promptvault.fn_prompts_before_update bo qua hoan toan thay doi loai nay (chi
     /// title/content/description/category_id/is_deleted nam trong WHEN clause), nen 2 thiet bi
     /// cung sua tag tu CUNG mot baseVersion se ca hai "thanh cong" trong im lang (last-writer-wins
     /// khong ai biet) — xem Update_hai_thiet_bi_cung_doi_tag_tu_cung_baseVersion_thi_conflict ben
@@ -332,7 +332,7 @@ public class SyncPushTests
 
         var body = await response.Content.ReadFromJsonAsync<OperationResultOf<SyncPushBatchResponse>>();
         Assert.Equal("applied", body!.Data!.Results[0].Status);
-        // Follow-up: meta_sig doi (tag them vao) -> trigger vault.fn_prompts_before_update GIO
+        // Follow-up: meta_sig doi (tag them vao) -> trigger promptvault.fn_prompts_before_update GIO
         // bump version, du title/content khong doi.
         Assert.Equal(2, body.Data!.Results[0].NewVersion);
 

@@ -62,7 +62,7 @@ public class SyncChangeItem
 /// noi bo nao (SpaceID, AuthorUserID, UpdatedDeviceId...) — chi Title/Content/... va CategoryId
 /// (Category dung Guid client-sinh nen an toan dua ra). Title/Content/Description/CategoryId/
 /// IsDeleted lay tu chinh payload trigger ghi lai (snapshot dung luc do); Tags/Variables luon
-/// hydrate tu bang song vi trigger tren vault.prompts khong biet gi ve prompt_tags/prompt_variables
+/// hydrate tu bang song vi trigger tren promptvault.prompts khong biet gi ve prompt_tags/prompt_variables
 /// (carry-forward Task 2).
 /// </summary>
 public class SyncPromptChangePayload

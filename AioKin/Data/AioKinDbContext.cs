@@ -270,7 +270,7 @@ public class AioKinDbContext(DbContextOptions<AioKinDbContext> options) : DbCont
             // dung race giua 2 push gan nhu cung luc, la lop phong thu THU HAI ben canh so
             // sanh BaseVersion tuong minh trong SyncService (xem Task 2).
             //
-            // P3: doc lai gia tri version ma trigger vault.fn_prompts_before_update vua bump
+            // P3: doc lai gia tri version ma trigger promptvault.fn_prompts_before_update vua bump
             // sau moi UPDATE — thieu no thi EF giu nguyen gia tri cu trong bo nho (stale) sau
             // SaveChangesAsync, du DB da co version moi.
             //

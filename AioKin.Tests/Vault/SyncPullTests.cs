@@ -151,7 +151,7 @@ public class SyncPullTests
         var spaceUuid = await GetPersonalSpaceUuidAsync(user);
 
         // Tao lich su roi "cron retention" xoa het sync_log (khong dong cha den dong con nao con
-        // lai) — nhung cac prompt VAN CON SONG trong vault.prompts.
+        // lai) — nhung cac prompt VAN CON SONG trong promptvault.prompts.
         await EstablishCursorThenCreateRetentionGapAsync(user, spaceUuid);
         using (var scope = _fixture.CreateScope())
         {
@@ -492,7 +492,7 @@ public class SyncPullTests
         Assert.NotNull(body.Data.SnapshotJson);
         // G4: noi dung phai NAM THANG trong response (client dung duoc ngay), khong phai mot
         // storage path/URL doi credential Supabase ma client di dong khong co. Prompt A/B da bi
-        // "xoa retention" khoi sync_log NHUNG van con SONG trong vault.prompts (chua tung xoa) —
+        // "xoa retention" khoi sync_log NHUNG van con SONG trong promptvault.prompts (chua tung xoa) —
         // snapshot phan anh dung TOAN BO trang thai hien tai, khong chi phan con lai trong log.
         Assert.Contains("noi dung A", body.Data.SnapshotJson);
         Assert.Contains("noi dung B", body.Data.SnapshotJson);

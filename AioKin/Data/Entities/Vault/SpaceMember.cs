@@ -5,7 +5,7 @@ using UserDb = AioKin.Data.Entities.Security.User;
 namespace AioKin.Data.Entities.Vault;
 
 /// <summary>Thanh vien cua 1 Team space. KHONG dung cho Family/Personal — xem SpaceContext.</summary>
-[Table("space_members", Schema = "vault")]
+[Table("space_members", Schema = "promptvault")]
 public class SpaceMember
 {
     [Key]

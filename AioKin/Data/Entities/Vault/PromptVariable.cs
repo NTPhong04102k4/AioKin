@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AioKin.Data.Entities.Vault;
 
-[Table("prompt_variables", Schema = "vault")]
+[Table("prompt_variables", Schema = "promptvault")]
 public class PromptVariable
 {
     public const string SubjectType = "PromptVariable";

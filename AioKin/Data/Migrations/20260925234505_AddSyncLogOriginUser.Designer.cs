@@ -962,7 +962,7 @@ namespace AioKin.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_categories_space_id_name");
 
-                    b.ToTable("categories", "vault");
+                    b.ToTable("categories", "promptvault");
                 });
 
             modelBuilder.Entity("AioKin.Data.Entities.Vault.Prompt", b =>
@@ -1076,7 +1076,7 @@ namespace AioKin.Data.Migrations
                         .HasDatabaseName("ix_prompts_space_id_updated_date")
                         .HasFilter("is_deleted = false");
 
-                    b.ToTable("prompts", "vault");
+                    b.ToTable("prompts", "promptvault");
                 });
 
             modelBuilder.Entity("AioKin.Data.Entities.Vault.PromptTag", b =>
@@ -1095,7 +1095,7 @@ namespace AioKin.Data.Migrations
                     b.HasIndex("TagID")
                         .HasDatabaseName("ix_prompt_tags_tag_id");
 
-                    b.ToTable("prompt_tags", "vault");
+                    b.ToTable("prompt_tags", "promptvault");
                 });
 
             modelBuilder.Entity("AioKin.Data.Entities.Vault.PromptVariable", b =>
@@ -1149,7 +1149,7 @@ namespace AioKin.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_prompt_variables_prompt_id_var_key");
 
-                    b.ToTable("prompt_variables", "vault");
+                    b.ToTable("prompt_variables", "promptvault");
                 });
 
             modelBuilder.Entity("AioKin.Data.Entities.Vault.Space", b =>
@@ -1206,7 +1206,7 @@ namespace AioKin.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_spaces_space_uuid");
 
-                    b.ToTable("spaces", "vault");
+                    b.ToTable("spaces", "promptvault");
                 });
 
             modelBuilder.Entity("AioKin.Data.Entities.Vault.SpaceMember", b =>
@@ -1242,7 +1242,7 @@ namespace AioKin.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_space_members_space_id_user_id");
 
-                    b.ToTable("space_members", "vault");
+                    b.ToTable("space_members", "promptvault");
                 });
 
             modelBuilder.Entity("AioKin.Data.Entities.Vault.Tag", b =>
@@ -1276,7 +1276,7 @@ namespace AioKin.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_tags_space_id_name");
 
-                    b.ToTable("tags", "vault");
+                    b.ToTable("tags", "promptvault");
                 });
 
             modelBuilder.Entity("AioKin.Data.Entities.Core.ScheduleItem", b =>

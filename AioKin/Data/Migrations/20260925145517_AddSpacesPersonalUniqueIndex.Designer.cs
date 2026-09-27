@@ -748,7 +748,7 @@ namespace AioKin.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_spaces_space_uuid");
 
-                    b.ToTable("spaces", "vault");
+                    b.ToTable("spaces", "promptvault");
                 });
 
             modelBuilder.Entity("AioKin.Data.Entities.Vault.SpaceMember", b =>
@@ -784,7 +784,7 @@ namespace AioKin.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_space_members_space_id_user_id");
 
-                    b.ToTable("space_members", "vault");
+                    b.ToTable("space_members", "promptvault");
                 });
 
             modelBuilder.Entity("AioKin.Data.Entities.Core.ScheduleItem", b =>

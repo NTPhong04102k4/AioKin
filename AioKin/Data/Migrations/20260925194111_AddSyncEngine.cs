@@ -135,7 +135,7 @@ namespace AioKin.Data.Migrations
             // la conflict thay vi am tham ap vao mot dong da "chet". is_favorite/has_conflict
             // KHONG nam trong WHEN — bat/tat rieng chung khong duoc tinh la mot sua doi noi dung.
             migrationBuilder.Sql("""
-                CREATE OR REPLACE FUNCTION vault.fn_prompts_before_update()
+                CREATE OR REPLACE FUNCTION promptvault.fn_prompts_before_update()
                 RETURNS TRIGGER AS $$
                 BEGIN
                     NEW.version := OLD.version + 1;
@@ -145,7 +145,7 @@ namespace AioKin.Data.Migrations
                 $$ LANGUAGE plpgsql;
 
                 CREATE TRIGGER trg_prompts_before_update
-                    BEFORE UPDATE ON vault.prompts
+                    BEFORE UPDATE ON promptvault.prompts
                     FOR EACH ROW
                     WHEN (
                         OLD.title IS DISTINCT FROM NEW.title OR
@@ -154,7 +154,7 @@ namespace AioKin.Data.Migrations
                         OLD.category_id IS DISTINCT FROM NEW.category_id OR
                         OLD.is_deleted IS DISTINCT FROM NEW.is_deleted
                     )
-                    EXECUTE FUNCTION vault.fn_prompts_before_update();
+                    EXECUTE FUNCTION promptvault.fn_prompts_before_update();
 
                 CREATE OR REPLACE FUNCTION sync.fn_prompts_write_log()
                 RETURNS TRIGGER AS $$
@@ -186,18 +186,18 @@ namespace AioKin.Data.Migrations
                 --     nen mot write CHI bat has_conflict/is_favorite (khong lam version nhich
                 --     len) se khong con tao them dong sync_log gia.
                 CREATE TRIGGER trg_prompts_write_sync_log_ins
-                    AFTER INSERT ON vault.prompts
+                    AFTER INSERT ON promptvault.prompts
                     FOR EACH ROW
                     EXECUTE FUNCTION sync.fn_prompts_write_log();
 
                 CREATE TRIGGER trg_prompts_write_sync_log_upd
-                    AFTER UPDATE ON vault.prompts
+                    AFTER UPDATE ON promptvault.prompts
                     FOR EACH ROW
                     WHEN (OLD.version IS DISTINCT FROM NEW.version)
                     EXECUTE FUNCTION sync.fn_prompts_write_log();
 
                 CREATE TRIGGER trg_prompts_write_sync_log_del
-                    AFTER DELETE ON vault.prompts
+                    AFTER DELETE ON promptvault.prompts
                     FOR EACH ROW
                     EXECUTE FUNCTION sync.fn_prompts_write_log();
                 """);
@@ -207,12 +207,12 @@ namespace AioKin.Data.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql("""
-                DROP TRIGGER IF EXISTS trg_prompts_write_sync_log_ins ON vault.prompts;
-                DROP TRIGGER IF EXISTS trg_prompts_write_sync_log_upd ON vault.prompts;
-                DROP TRIGGER IF EXISTS trg_prompts_write_sync_log_del ON vault.prompts;
+                DROP TRIGGER IF EXISTS trg_prompts_write_sync_log_ins ON promptvault.prompts;
+                DROP TRIGGER IF EXISTS trg_prompts_write_sync_log_upd ON promptvault.prompts;
+                DROP TRIGGER IF EXISTS trg_prompts_write_sync_log_del ON promptvault.prompts;
                 DROP FUNCTION IF EXISTS sync.fn_prompts_write_log();
-                DROP TRIGGER IF EXISTS trg_prompts_before_update ON vault.prompts;
-                DROP FUNCTION IF EXISTS vault.fn_prompts_before_update();
+                DROP TRIGGER IF EXISTS trg_prompts_before_update ON promptvault.prompts;
+                DROP FUNCTION IF EXISTS promptvault.fn_prompts_before_update();
                 """);
 
             migrationBuilder.DropTable(

@@ -12,7 +12,7 @@ namespace AioKin.Data.Migrations
         {
             migrationBuilder.AddColumn<string>(
                 name: "meta_sig",
-                schema: "vault",
+                schema: "promptvault",
                 table: "prompts",
                 type: "character varying(64)",
                 maxLength: 64,
@@ -27,9 +27,9 @@ namespace AioKin.Data.Migrations
             // voi loai thay doi nay, xem SyncService.ComputeMetaSig) gio se cung bump version +
             // ghi sync_log giong het mot content change that su.
             migrationBuilder.Sql("""
-                DROP TRIGGER IF EXISTS trg_prompts_before_update ON vault.prompts;
+                DROP TRIGGER IF EXISTS trg_prompts_before_update ON promptvault.prompts;
 
-                CREATE OR REPLACE FUNCTION vault.fn_prompts_before_update()
+                CREATE OR REPLACE FUNCTION promptvault.fn_prompts_before_update()
                 RETURNS TRIGGER AS $$
                 BEGIN
                     NEW.version := OLD.version + 1;
@@ -39,7 +39,7 @@ namespace AioKin.Data.Migrations
                 $$ LANGUAGE plpgsql;
 
                 CREATE TRIGGER trg_prompts_before_update
-                    BEFORE UPDATE ON vault.prompts
+                    BEFORE UPDATE ON promptvault.prompts
                     FOR EACH ROW
                     WHEN (
                         OLD.title IS DISTINCT FROM NEW.title OR
@@ -49,7 +49,7 @@ namespace AioKin.Data.Migrations
                         OLD.is_deleted IS DISTINCT FROM NEW.is_deleted OR
                         OLD.meta_sig IS DISTINCT FROM NEW.meta_sig
                     )
-                    EXECUTE FUNCTION vault.fn_prompts_before_update();
+                    EXECUTE FUNCTION promptvault.fn_prompts_before_update();
                 """);
         }
 
@@ -59,9 +59,9 @@ namespace AioKin.Data.Migrations
             // Khoi phuc lai WHEN clause CU (khong co meta_sig) TRUOC khi drop cot — trigger phai
             // con hop le (khong tham chieu cot sap bi xoa) tai moi thoi diem trong Down().
             migrationBuilder.Sql("""
-                DROP TRIGGER IF EXISTS trg_prompts_before_update ON vault.prompts;
+                DROP TRIGGER IF EXISTS trg_prompts_before_update ON promptvault.prompts;
 
-                CREATE OR REPLACE FUNCTION vault.fn_prompts_before_update()
+                CREATE OR REPLACE FUNCTION promptvault.fn_prompts_before_update()
                 RETURNS TRIGGER AS $$
                 BEGIN
                     NEW.version := OLD.version + 1;
@@ -71,7 +71,7 @@ namespace AioKin.Data.Migrations
                 $$ LANGUAGE plpgsql;
 
                 CREATE TRIGGER trg_prompts_before_update
-                    BEFORE UPDATE ON vault.prompts
+                    BEFORE UPDATE ON promptvault.prompts
                     FOR EACH ROW
                     WHEN (
                         OLD.title IS DISTINCT FROM NEW.title OR
@@ -80,12 +80,12 @@ namespace AioKin.Data.Migrations
                         OLD.category_id IS DISTINCT FROM NEW.category_id OR
                         OLD.is_deleted IS DISTINCT FROM NEW.is_deleted
                     )
-                    EXECUTE FUNCTION vault.fn_prompts_before_update();
+                    EXECUTE FUNCTION promptvault.fn_prompts_before_update();
                 """);
 
             migrationBuilder.DropColumn(
                 name: "meta_sig",
-                schema: "vault",
+                schema: "promptvault",
                 table: "prompts");
         }
     }
