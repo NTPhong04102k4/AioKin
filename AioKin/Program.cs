@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Security.Cryptography.X509Certificates;
 using AioKin.Common;
 using AioKin.Controllers.Auth;
 using AioKin.Data;
@@ -297,9 +298,50 @@ if (!string.IsNullOrWhiteSpace(storageBaseUrl))
 
 // Luu khoa DataProtection vao Postgres de bao toan phien dang nhap (cookie tam SSO,
 // OAuth state, anti-forgery) khi container restart hoac scale out nhieu replica.
-builder.Services.AddDataProtection()
+var dataProtectionBuilder = builder.Services.AddDataProtection()
     .PersistKeysToDbContext<AioKinDbContext>()
     .SetApplicationName("AioKin");
+
+// Ma hoa khoa truoc khi luu — khong co buoc nay, "No XML encryptor configured" chi la
+// canh bao, nhung khoa nam trong security.data_protection_keys dang o dang PLAINTEXT: ai
+// doc duoc DB (backup leak, SQL injection...) deu giai ma duoc moi cookie/OAuth state/anti-
+// forgery token da phat hanh. Uu tien CertificateBase64 (bien moi truong, khong can mount
+// file — hop voi Render); CertificatePath danh cho moi truong dung Secret Files.
+var dpCertBase64 = config["DataProtection:CertificateBase64"];
+var dpCertPath = config["DataProtection:CertificatePath"];
+var dpCertPassword = config["DataProtection:CertificatePassword"];
+
+if (!string.IsNullOrWhiteSpace(dpCertBase64))
+{
+    try
+    {
+        var cert = X509CertificateLoader.LoadPkcs12(Convert.FromBase64String(dpCertBase64), dpCertPassword);
+        dataProtectionBuilder.ProtectKeysWithCertificate(cert);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[DataProtection] Khong nap duoc certificate tu CertificateBase64 ({ex.Message}) — " +
+            "khoa se KHONG duoc ma hoa khi luu vao Postgres.");
+    }
+}
+else if (!string.IsNullOrWhiteSpace(dpCertPath) && File.Exists(dpCertPath))
+{
+    try
+    {
+        var cert = X509CertificateLoader.LoadPkcs12FromFile(dpCertPath, dpCertPassword);
+        dataProtectionBuilder.ProtectKeysWithCertificate(cert);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[DataProtection] Khong nap duoc certificate tu {dpCertPath} ({ex.Message}) — " +
+            "khoa se KHONG duoc ma hoa khi luu vao Postgres.");
+    }
+}
+else if (builder.Environment.IsProduction())
+{
+    Console.WriteLine("[DataProtection] CANH BAO: chua cau hinh DataProtection:CertificateBase64/CertificatePath " +
+        "tren Production — khoa dang luu KHONG MA HOA vao security.data_protection_keys.");
+}
 
 var authentication = builder.Services.AddAuthentication(options =>
 {
