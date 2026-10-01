@@ -79,6 +79,7 @@ public class OAuthService : IOAuthService
             if (dto is null)
                 return OAuthResult.Fail("Google token khong hop le hoac da het han.");
 
+            _logger.LogInformation("Google native: token ok, resolving user (hasEmail={HasEmail})", !string.IsNullOrWhiteSpace(dto.Email));
             var (user, error) = await ResolveSocialUserAsync(
                 dto.IDSocial,
                 dto.Email,
@@ -86,6 +87,7 @@ public class OAuthService : IOAuthService
                 dto.VerifiedEmail,
                 () => UserMapper.FromGoogle(dto));
 
+            _logger.LogInformation("Google native: user resolved ok={Ok} error={Error}", user is not null, error);
             return user is null ? OAuthResult.Fail(error!) : await IssueTokensAsync(user, device);
         }
         catch (Exception ex)
