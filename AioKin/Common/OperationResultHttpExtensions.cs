@@ -25,6 +25,8 @@ public static class OperationResultHttpExtensions
         "TokenRevoked" => StatusCodes.Status401Unauthorized,
         "InvalidRecoveryCode" => StatusCodes.Status401Unauthorized,
         "InvalidRefreshToken" => StatusCodes.Status401Unauthorized,
+        "TokenReuseDetected" => StatusCodes.Status401Unauthorized,
+        "SessionExpired" => StatusCodes.Status401Unauthorized,
         "InvalidOtp" => StatusCodes.Status401Unauthorized,
         "InvalidTemporaryPassword" => StatusCodes.Status401Unauthorized,
         "UserInactive" => StatusCodes.Status401Unauthorized,

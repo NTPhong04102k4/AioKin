@@ -22,7 +22,7 @@ public class RefreshTokenService : IRefreshTokenService
         _logger = logger;
     }
 
-    /// <summary>TTL doc tu Jwt:RefreshTokenExpiryDays — fallback 7 ngay neu thieu hoac khong hop le.</summary>
+    /// <summary>TTL sliding doc tu Jwt:RefreshTokenExpiryDays — fallback 7 ngay neu thieu hoac khong hop le.</summary>
     private TimeSpan ResolveTtl()
     {
         var days = int.TryParse(_configuration["Jwt:RefreshTokenExpiryDays"], out var d) && d > 0
@@ -31,7 +31,16 @@ public class RefreshTokenService : IRefreshTokenService
         return TimeSpan.FromDays(days);
     }
 
-    public async Task<string> GenerateAsync(string subject, string role, DeviceInfo device)
+    /// <summary>Tran tuyet doi doc tu Jwt:RefreshTokenAbsoluteExpiryDays — fallback 60 ngay.</summary>
+    private TimeSpan ResolveAbsoluteExpiry()
+    {
+        var days = int.TryParse(_configuration["Jwt:RefreshTokenAbsoluteExpiryDays"], out var d) && d > 0
+            ? d
+            : (int)RedisTtl.RefreshTokenAbsolute.TotalDays;
+        return TimeSpan.FromDays(days);
+    }
+
+    public async Task<string> GenerateAsync(string subject, string role, DeviceInfo device, string? tokenFamilyId = null, DateTime? absoluteExpiresAt = null)
     {
         // 64 byte ngau nhien, base64url khong padding — an toan khi dat trong URL/header.
         var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(64))
@@ -40,11 +49,21 @@ public class RefreshTokenService : IRefreshTokenService
             .TrimEnd('=');
 
         var hash = TokenHash.Sha256Hex(token);
-        var ttl = ResolveTtl();
+        var now = DateTime.UtcNow;
+
+        // familyId/absoluteExpiresAt null => day la mot lan DANG NHAP MOI (khong phai rotate):
+        // bat dau mot chuoi token moi voi tran tuyet doi moi.
+        var familyId = tokenFamilyId ?? Guid.NewGuid().ToString("N");
+        var absoluteExpiry = absoluteExpiresAt ?? now.Add(ResolveAbsoluteExpiry());
+
+        // Sliding TTL khong duoc vuot qua tran tuyet doi con lai — token moi cuoi chuoi phai
+        // het han dung luc cham tran, khong duoc gia han them.
+        var remainingToAbsolute = absoluteExpiry - now;
+        var ttl = remainingToAbsolute < ResolveTtl() ? remainingToAbsolute : ResolveTtl();
 
         var saved = await _redis.SetAsync(
             RedisKeys.RefreshToken(hash),
-            new RefreshTokenPayload(subject, role, device.DeviceId, device.DeviceName, device.Platform),
+            new RefreshTokenPayload(subject, role, device.DeviceId, device.DeviceName, device.Platform, familyId, absoluteExpiry),
             ttl);
         if (!saved)
         {
@@ -109,6 +128,32 @@ public class RefreshTokenService : IRefreshTokenService
     {
         await _redis.DeleteAsync(RedisKeys.RefreshToken(TokenHash.Sha256Hex(token)));
         _logger.LogInformation("Refresh token revoked");
+    }
+
+    public async Task TombstoneAsync(string token)
+    {
+        var hash = TokenHash.Sha256Hex(token);
+        var payload = await _redis.GetAsync<RefreshTokenPayload>(RedisKeys.RefreshToken(hash));
+        if (payload is null)
+            return; // da het han hoac da bi xoa han o noi khac — khong con gi de tombstone.
+
+        await _redis.SetAsync(RedisKeys.RefreshToken(hash), payload with { IsRevoked = true }, RedisTtl.RefreshTokenTombstone);
+        _logger.LogInformation("Refresh token tombstoned for subject={Subject}, family={FamilyId}", payload.Subject, payload.TokenFamilyId);
+    }
+
+    public async Task RevokeFamilyAsync(string subject, string tokenFamilyId)
+    {
+        var userTokensKey = RedisKeys.UserRefreshTokens(subject);
+        var existing = await _redis.GetStringAsync(userTokensKey) ?? string.Empty;
+
+        foreach (var hash in existing.Split(TokenSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var payload = await _redis.GetAsync<RefreshTokenPayload>(RedisKeys.RefreshToken(hash));
+            if (payload is not null && string.Equals(payload.TokenFamilyId, tokenFamilyId, StringComparison.Ordinal))
+                await _redis.DeleteAsync(RedisKeys.RefreshToken(hash));
+        }
+
+        _logger.LogWarning("Security Alert: refresh token family revoked for subject={Subject}, family={FamilyId}", subject, tokenFamilyId);
     }
 
     public async Task RevokeAllAsync(string subject)

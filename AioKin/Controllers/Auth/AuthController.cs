@@ -396,11 +396,39 @@ public class AuthController : ControllerBase
             return this.ToActionResult(OperationResult.Fail("InvalidRefreshToken",
                 "Refresh token khong hop le hoac da het han. Vui long dang nhap lai."));
 
-        var (subject, role, payloadDeviceId, payloadDeviceName, payloadPlatform) = payload;
+        // PHAT HIEN TAI SU DUNG: token nay da bi xoay vong truoc do (TombstoneAsync) ma van
+        // duoc gui len lan nua — hoac thiet bi that dang replay do loi mang, hoac ke tan cong
+        // dang dung mot ban sao cu. Khong the phan biet hai truong hop nay, nen xu ly nhu bi lo:
+        // ngat toan bo chuoi (ca thiet bi that lan ke tan cong deu phai dang nhap lai).
+        if (payload.IsRevoked)
+        {
+            await _refreshTokenService.RevokeFamilyAsync(payload.Subject, payload.TokenFamilyId);
+            if (!string.IsNullOrWhiteSpace(payload.DeviceId))
+                await _accessTokenService.RevokeForDeviceAsync(payload.Subject, payload.DeviceId);
 
-        // Thu hoi truoc khi cap token moi: neu cap truoc roi moi thu hoi va co su co o
-        // giua, ca hai token deu con song.
-        await _refreshTokenService.RevokeAsync(model.RefreshToken);
+            _logger.LogWarning(
+                "Security Alert: refresh token reuse detected for subject={Subject}, family={FamilyId}",
+                payload.Subject, payload.TokenFamilyId);
+
+            return this.ToActionResult(OperationResult.Fail("TokenReuseDetected",
+                "Phat hien dau hieu bat thuong. Vui long dang nhap lai."));
+        }
+
+        // TRAN TUYET DOI: du sliding TTL con hieu luc, ca chuoi khong duoc song qua moc nay —
+        // bat buoc dang nhap lai bang user/pass hoac OTP sau 60-90 ngay du van dang hoat dong.
+        if (DateTime.UtcNow >= payload.AbsoluteExpiresAt)
+        {
+            await _refreshTokenService.TombstoneAsync(model.RefreshToken);
+            return this.ToActionResult(OperationResult.Fail("SessionExpired",
+                "Phien dang nhap da het han. Vui long dang nhap lai."));
+        }
+
+        var subject = payload.Subject;
+        var role = payload.Role;
+
+        // Tombstone (khong xoa han) truoc khi cap token moi: giu lai de lan refresh ke tiep
+        // voi CUNG token nay (replay) con phat hien duoc, thay vi chi bao "khong ton tai".
+        await _refreshTokenService.TombstoneAsync(model.RefreshToken);
 
         // Uu tien thiet bi da luu trong PAYLOAD (tu luc dang nhap/refresh truoc), chi roi ve
         // truong client gui kem request khi payload khong co: neu uu tien request, ke dang giu
@@ -409,9 +437,9 @@ public class AuthController : ControllerBase
         // RevokeAllForDeviceAsync ke tiep tren "thiet bi B" se giet nham phien that cua B.
         // Payload-first cung tranh sinh unknown-<guid> MOI moi lan refresh cho client cu/native
         // khong gui lai deviceId (Expo gap G7).
-        var deviceId = string.IsNullOrWhiteSpace(payloadDeviceId) ? model.DeviceId : payloadDeviceId;
-        var deviceName = string.IsNullOrWhiteSpace(payloadDeviceName) ? model.DeviceName : payloadDeviceName;
-        var platform = string.IsNullOrWhiteSpace(payloadPlatform) ? model.Platform : payloadPlatform;
+        var deviceId = string.IsNullOrWhiteSpace(payload.DeviceId) ? model.DeviceId : payload.DeviceId;
+        var deviceName = string.IsNullOrWhiteSpace(payload.DeviceName) ? model.DeviceName : payload.DeviceName;
+        var platform = string.IsNullOrWhiteSpace(payload.Platform) ? model.Platform : payload.Platform;
         var device = DeviceInfo.Resolve(deviceId, deviceName, platform);
 
         // Bo access session cu cua chinh thiet bi nay truoc khi cap cai moi — neu khong no
@@ -446,7 +474,9 @@ public class AuthController : ControllerBase
         return Ok(new TokenResponse
         {
             AccessToken = accessToken,
-            RefreshToken = await _refreshTokenService.GenerateAsync(subject, role, device),
+            // Giu nguyen TokenFamilyId + AbsoluteExpiresAt tu payload cu — day la rotation,
+            // khong phai dang nhap moi, nen khong duoc bat dau mot chuoi/tran han moi.
+            RefreshToken = await _refreshTokenService.GenerateAsync(subject, role, device, payload.TokenFamilyId, payload.AbsoluteExpiresAt),
             ExpiresIn = _accessTokenService.AccessTokenLifetimeSeconds,
             TokenType = "Bearer",
             Scope = role
