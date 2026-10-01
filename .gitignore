@@ -237,6 +237,8 @@ ClientBin/
 *.dbproj.schemaview
 *.jfm
 *.pfx
+*.pfx.base64.txt
+aiokin-dataprotection.password.txt
 *.publishsettings
 orleans.codegen.cs
 
