@@ -55,6 +55,19 @@ public static class RedisTtl
     public static readonly TimeSpan Registration = TimeSpan.FromMinutes(15);
     public static readonly TimeSpan RefreshToken = TimeSpan.FromDays(7);
 
+    /// <summary>
+    /// Tran tren tuyet doi mac dinh cua ca chuoi refresh token (TokenFamilyId), tinh tu luc
+    /// dang nhap dau tien — doc tu Jwt:RefreshTokenAbsoluteExpiryDays, fallback gia tri nay.
+    /// </summary>
+    public static readonly TimeSpan RefreshTokenAbsolute = TimeSpan.FromDays(60);
+
+    /// <summary>
+    /// TTL cua mot refresh token sau khi bi tombstone (da rotate, giu lai de bay phat hien
+    /// replay). Ngan hon nhieu so RefreshToken TTL thuong: ke tan cong thuong chi replay token
+    /// cu trong vai gio sau khi thiet bi that da xoay vong, giu lau hon chi ton bo nho Redis.
+    /// </summary>
+    public static readonly TimeSpan RefreshTokenTombstone = TimeSpan.FromHours(48);
+
     /// <summary>2 phut: du de nguoi dung xac thuc sinh trac, ngan de giam cua so tan cong.</summary>
     public static readonly TimeSpan BiometricChallenge = TimeSpan.FromMinutes(2);
 

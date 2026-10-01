@@ -39,6 +39,91 @@ public class RefreshTokenServiceTests
     }
 
     [Fact]
+    public async Task GenerateAsync_moi_tu_dang_nhap_tao_TokenFamilyId_rieng_va_AbsoluteExpiresAt_mac_dinh()
+    {
+        var sut = CreateSut();
+        var before = DateTime.UtcNow;
+
+        var token = await sut.GenerateAsync("UC123", "Customer", new DeviceInfo("device-abc", null, null));
+        var payload = await sut.ValidateAsync(token);
+
+        Assert.NotNull(payload);
+        Assert.False(string.IsNullOrWhiteSpace(payload!.TokenFamilyId));
+        Assert.False(payload.IsRevoked);
+        // Mac dinh 60 ngay khi khong cau hinh Jwt:RefreshTokenAbsoluteExpiryDays.
+        Assert.InRange(payload.AbsoluteExpiresAt, before.AddDays(60).AddMinutes(-1), before.AddDays(60).AddMinutes(1));
+    }
+
+    [Fact]
+    public async Task GenerateAsync_khi_rotate_giu_nguyen_TokenFamilyId_va_AbsoluteExpiresAt_duoc_truyen_vao()
+    {
+        var sut = CreateSut();
+        var fixedAbsoluteExpiry = DateTime.UtcNow.AddDays(10);
+
+        var token = await sut.GenerateAsync(
+            "UC123", "Customer", new DeviceInfo("device-abc", null, null),
+            tokenFamilyId: "family-xyz", absoluteExpiresAt: fixedAbsoluteExpiry);
+        var payload = await sut.ValidateAsync(token);
+
+        Assert.NotNull(payload);
+        Assert.Equal("family-xyz", payload!.TokenFamilyId);
+        Assert.Equal(fixedAbsoluteExpiry, payload.AbsoluteExpiresAt);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_khong_cho_sliding_TTL_vuot_qua_AbsoluteExpiresAt()
+    {
+        var redis = new TtlCapturingRedisService();
+        var sut = CreateSut(redis);
+        // Tran tuyet doi chi con 2 ngay nua, trong khi sliding TTL mac dinh la 7 ngay — token
+        // moi phai song toi da 2 ngay, khong duoc gia han them 7 ngay nua.
+        var almostExpiredAbsolute = DateTime.UtcNow.AddDays(2);
+
+        await sut.GenerateAsync(
+            "UC123", "Customer", new DeviceInfo("device-abc", null, null),
+            tokenFamilyId: "family-xyz", absoluteExpiresAt: almostExpiredAbsolute);
+
+        Assert.NotNull(redis.LastTtl);
+        Assert.True(redis.LastTtl!.Value <= TimeSpan.FromDays(2).Add(TimeSpan.FromMinutes(1)));
+    }
+
+    [Fact]
+    public async Task TombstoneAsync_khong_xoa_token_ma_danh_dau_IsRevoked_de_phat_hien_tai_su_dung()
+    {
+        var redis = new TtlCapturingRedisService();
+        var sut = CreateSut(redis);
+        var token = await sut.GenerateAsync("UC123", "Customer", new DeviceInfo("device-abc", null, null));
+
+        await sut.TombstoneAsync(token);
+        var payload = await sut.ValidateAsync(token);
+
+        // Khac RevokeAsync (xoa han): TombstoneAsync phai GIU LAI token de lan refresh ke tiep
+        // voi cung token nay phat hien duoc day la mot lan tai su dung (replay).
+        Assert.NotNull(payload);
+        Assert.True(payload!.IsRevoked);
+
+        // SetAsync cuoi cung (ghi tombstone) phai dung TTL ngan RefreshTokenTombstone (48h),
+        // khong phai TTL 7-60 ngay thong thuong cua mot token con song.
+        Assert.NotNull(redis.LastTtl);
+        Assert.True(redis.LastTtl!.Value <= TimeSpan.FromHours(48).Add(TimeSpan.FromMinutes(1)));
+    }
+
+    [Fact]
+    public async Task RevokeFamilyAsync_chi_thu_hoi_token_cung_TokenFamilyId_khong_dung_den_family_khac()
+    {
+        var sut = CreateSut();
+        var tokenFamilyA1 = await sut.GenerateAsync("UC1", "Customer", new DeviceInfo("device-a", null, null), tokenFamilyId: "family-A");
+        var tokenFamilyA2 = await sut.GenerateAsync("UC1", "Customer", new DeviceInfo("device-a", null, null), tokenFamilyId: "family-A");
+        var tokenFamilyB = await sut.GenerateAsync("UC1", "Customer", new DeviceInfo("device-b", null, null), tokenFamilyId: "family-B");
+
+        await sut.RevokeFamilyAsync("UC1", "family-A");
+
+        Assert.Null(await sut.ValidateAsync(tokenFamilyA1));
+        Assert.Null(await sut.ValidateAsync(tokenFamilyA2));
+        Assert.NotNull(await sut.ValidateAsync(tokenFamilyB));
+    }
+
+    [Fact]
     public async Task GenerateAsync_khong_can_deviceId()
     {
         var sut = CreateSut();
@@ -130,6 +215,35 @@ public class RefreshTokenServiceTests
 
         Assert.False(await redis.ExistsAsync(RedisKeys.RefreshToken(token)));
         Assert.True(await redis.ExistsAsync(RedisKeys.RefreshToken(hash)));
+    }
+
+    /// <summary>
+    /// IRedisService gia lap: ghi lai TTL cua lan SetAsync gan nhat — MemoryCacheRedisService
+    /// that khong the dung lai vi GetTtlAsync cua no luon tra ve null (IMemoryCache khong lo
+    /// ra TTL con lai). Cac thao tac khac uy quyen cho MemoryCacheRedisService that.
+    /// </summary>
+    private sealed class TtlCapturingRedisService : IRedisService
+    {
+        private readonly MemoryCacheRedisService _inner =
+            new(new MemoryCache(new MemoryCacheOptions()), NullLogger<MemoryCacheRedisService>.Instance);
+
+        public TimeSpan? LastTtl { get; private set; }
+
+        public Task<bool> SetAsync<T>(string key, T value, TimeSpan expiry)
+        {
+            LastTtl = expiry;
+            return _inner.SetAsync(key, value, expiry);
+        }
+
+        public Task<T?> GetAsync<T>(string key) => _inner.GetAsync<T>(key);
+        public Task<bool> SetStringAsync(string key, string value, TimeSpan expiry) => _inner.SetStringAsync(key, value, expiry);
+        public Task<bool> SetIfNotExistsAsync(string key, string value, TimeSpan expiry) => _inner.SetIfNotExistsAsync(key, value, expiry);
+        public Task<string?> GetStringAsync(string key) => _inner.GetStringAsync(key);
+        public Task<bool> DeleteAsync(string key) => _inner.DeleteAsync(key);
+        public Task<long> DeleteByPrefixAsync(string keyPrefix) => _inner.DeleteByPrefixAsync(keyPrefix);
+        public Task<bool> ExistsAsync(string key) => _inner.ExistsAsync(key);
+        public Task<bool> ExtendTtlAsync(string key, TimeSpan expiry) => _inner.ExtendTtlAsync(key, expiry);
+        public Task<TimeSpan?> GetTtlAsync(string key) => _inner.GetTtlAsync(key);
     }
 
     /// <summary>IRedisService gia lap: SetAsync luon that bai (mo phong Redis down), cac thao tac
